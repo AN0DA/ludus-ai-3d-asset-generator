@@ -1,5 +1,5 @@
 def main():
-    print("Hello from ludus-ai-3d-asset-generator!")
+    pass
 
 
 if __name__ == "__main__":

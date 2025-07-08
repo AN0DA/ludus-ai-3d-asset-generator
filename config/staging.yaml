@@ -1,0 +1,130 @@
+# Staging Environment Configuration
+# This configuration is used for staging/testing deployment
+
+environment: staging
+debug: true
+
+# Large Language Model Configuration
+llm:
+  primary_provider: "openai"
+  fallback_provider: "anthropic"
+  use_fallback: true
+  providers:
+    openai:
+      name: "openai"
+      model: "gpt-4"
+      base_url: null
+      max_tokens: 2048
+      temperature: 0.7
+      timeout: 90
+      max_retries: 3
+      retry_delay: 1.5
+    anthropic:
+      name: "anthropic"
+      model: "claude-3-sonnet-20240229"
+      base_url: "https://api.anthropic.com"
+      max_tokens: 2048
+      temperature: 0.7
+      timeout: 90
+      max_retries: 3
+      retry_delay: 1.5
+
+# Object Storage Configuration
+object_storage:
+  provider: "aws"
+  endpoint_url: null
+  region: "us-east-1"
+  bucket_name: "ai-3d-assets-staging"
+  bucket_public: "ai-3d-assets-public-staging"
+  custom_domain: null
+  use_ssl: true
+  presigned_url_expiry: 3600
+  max_file_size: 104857600  # 100MB
+  allowed_extensions:
+    - ".obj"
+    - ".gltf"
+    - ".fbx"
+    - ".glb"
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".mtl"
+  cleanup_after_days: 14
+  multipart_threshold: 67108864  # 64MB
+  max_concurrency: 5
+
+# 3D Generation Configuration
+threed_generation:
+  primary_service: "meshy"
+  fallback_service: "kaedim"
+  generation_timeout: 300
+  polling_interval: 10
+  max_polling_attempts: 90
+  quality_preset: "standard"
+  output_formats:
+    - "obj"
+    - "gltf"
+  texture_resolution: 1024
+
+# Gradio Web Interface Configuration
+gradio:
+  host: "0.0.0.0"
+  port: 7860
+  debug: true
+  share: false
+  max_file_size: 52428800  # 50MB
+  queue_max_size: 20
+  show_error: true
+  theme: "default"
+  title: "AI 3D Asset Generator - Staging"
+  description: "Generate 3D assets from text descriptions (Staging Environment)"
+
+# Database Configuration (PostgreSQL for staging)
+database:
+  url: "postgresql://staging_user:staging_pass@staging-db:5432/ai_3d_assets_staging"
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+  pool_recycle: 3600
+  echo: true
+
+# Logging Configuration
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+  file_path: "/var/log/ai-3d-assets/staging.log"
+  max_file_size: 20971520  # 20MB
+  backup_count: 3
+  json_format: false
+
+# Security Configuration
+security:
+  secret_key: "staging-secret-key-32-characters-minimum-required-length"
+  allowed_hosts:
+    - "staging.ai-3d-assets.example.com"
+    - "staging-api.ai-3d-assets.example.com"
+  cors_origins:
+    - "https://staging.ai-3d-assets.example.com"
+    - "https://staging-app.ai-3d-assets.example.com"
+  max_request_size: 104857600  # 100MB
+  rate_limit_requests: 200
+  rate_limit_window: 60
+  api_key_header: "X-API-Key"
+
+# Application Settings
+app_name: "AI 3D Asset Generator"
+app_version: "0.1.0"
+asset_cache_ttl: 1800  # 30 minutes
+temp_dir: "/tmp/ai-3d-assets-staging"
+max_concurrent_generations: 5
+
+# Staging-specific settings
+testing:
+  enabled: true
+  mock_external_apis: false
+  generate_test_data: true
+  
+monitoring:
+  enabled: true
+  metrics_port: 8080
+  health_check_port: 8081
