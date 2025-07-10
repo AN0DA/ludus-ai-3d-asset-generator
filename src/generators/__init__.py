@@ -24,7 +24,9 @@ from .base import (
 
 from .llm_generator import (
     LLMConfig,
-    ExampleLLMGenerator,
+    LLMGenerator,
+    EnhancedAssetDescription,
+    OutputFormat,
 )
 
 __all__ = [
@@ -50,5 +52,7 @@ __all__ = [
     
     # Concrete implementations
     "LLMConfig",
-    "ExampleLLMGenerator",
+    "LLMGenerator",
+    "EnhancedAssetDescription",
+    "OutputFormat",
 ]
