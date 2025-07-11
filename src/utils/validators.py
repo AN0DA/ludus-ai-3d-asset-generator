@@ -72,8 +72,7 @@ class ValidationConfig:
     ALLOWED_TEXTURE_FORMATS = {'.jpg', '.jpeg', '.png', '.tga', '.exr', '.hdr', '.tiff'}
     
     # API key patterns
-    OPENAI_KEY_PATTERN = r'^sk-[A-Za-z0-9]{48}$'
-    ANTHROPIC_KEY_PATTERN = r'^sk-ant-[A-Za-z0-9\-_]{95,}$'
+    LLM_KEY_PATTERN = r'^sk-[A-Za-z0-9]{48}$'  # OpenAI format, can be extended for other providers
     AWS_ACCESS_KEY_PATTERN = r'^AKIA[0-9A-Z]{16}$'
     AWS_SECRET_KEY_PATTERN = r'^[A-Za-z0-9/+=]{40}$'
 
@@ -574,39 +573,20 @@ class APIKeyValidator:
     """Validates API keys and credentials."""
     
     @staticmethod
-    def validate_openai_key(api_key: str) -> bool:
-        """Validate OpenAI API key format."""
+    def validate_llm_key(api_key: str) -> bool:
+        """Validate LLM API key format."""
         if not api_key or not isinstance(api_key, str):
             raise APIValidationException(
-                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="OpenAI"),
-                field="openai_api_key",
-                code="INVALID_OPENAI_KEY"
+                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="LLM"),
+                field="llm_api_key",
+                code="INVALID_LLM_KEY"
             )
         
-        if not re.match(ValidationConfig.OPENAI_KEY_PATTERN, api_key.strip()):
+        if not re.match(ValidationConfig.LLM_KEY_PATTERN, api_key.strip()):
             raise APIValidationException(
-                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="OpenAI"),
-                field="openai_api_key",
-                code="INVALID_OPENAI_KEY_FORMAT"
-            )
-        
-        return True
-    
-    @staticmethod
-    def validate_anthropic_key(api_key: str) -> bool:
-        """Validate Anthropic API key format."""
-        if not api_key or not isinstance(api_key, str):
-            raise APIValidationException(
-                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="Anthropic"),
-                field="anthropic_api_key",
-                code="INVALID_ANTHROPIC_KEY"
-            )
-        
-        if not re.match(ValidationConfig.ANTHROPIC_KEY_PATTERN, api_key.strip()):
-            raise APIValidationException(
-                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="Anthropic"),
-                field="anthropic_api_key",
-                code="INVALID_ANTHROPIC_KEY_FORMAT"
+                ErrorMessages.API_KEY_INVALID_FORMAT.format(service="LLM"),
+                field="llm_api_key",
+                code="INVALID_LLM_KEY_FORMAT"
             )
         
         return True

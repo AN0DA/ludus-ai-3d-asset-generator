@@ -3,10 +3,15 @@ Universal S3-compatible cloud storage implementation.
 
 This module provides a concrete implementation of the CloudStorage interface
 for any S3-compatible storage service including AWS S3, MinIO, CloudFlare R2,
-DigitalOcean Spaces, Wasabi, Backblaze B2, and others.
+DigitalOcean Spaces, Wasabi, Backblaze B2, Oracle Cloud Infrastructure (OCI)
+Object Storage, and others.
 
 All modern object storage services support the S3 API, making this a universal
 solution for cloud storage needs.
+
+Note: This implementation includes specific compatibility fixes for Oracle Cloud
+Infrastructure (OCI) Object Storage, which requires explicit Content-Length
+headers in upload operations.
 """
 
 import asyncio
@@ -82,14 +87,14 @@ class S3Storage(CloudStorage):
                 retries={
                     'max_attempts': 3,
                     'mode': 'adaptive'
-                },
-                use_ssl=self.config.use_ssl,
+                }
             )
             
             # Create S3 client
             client_kwargs = {
                 'config': boto_config,
                 'region_name': self.config.region,
+                'use_ssl': self.config.use_ssl,
             }
             
             if self.config.endpoint_url:
@@ -180,6 +185,7 @@ class S3Storage(CloudStorage):
             # Prepare upload parameters
             upload_args = {
                 'ContentType': content_type,
+                'ContentLength': file_size,  # Required for OCI Object Storage
                 'ACL': (permission or self.config.default_permission).value,
             }
             
@@ -217,6 +223,7 @@ class S3Storage(CloudStorage):
             upload_args = {
                 'Body': data,
                 'ContentType': content_type,
+                'ContentLength': len(data),  # Required for OCI Object Storage
                 'ACL': (permission or self.config.default_permission).value,
             }
             
@@ -574,31 +581,19 @@ class S3Storage(CloudStorage):
         """Perform a simple (non-multipart) upload."""
         file_size = file_path.stat().st_size
         
-        class ProgressCallback:
-            def __init__(self, callback, total_size):
-                self.callback = callback
-                self.total_size = total_size
-                self.uploaded = 0
-            
-            def __call__(self, bytes_amount):
-                self.uploaded += bytes_amount
-                if self.callback:
-                    progress = UploadProgress(
-                        bytes_uploaded=self.uploaded,
-                        total_bytes=self.total_size,
-                        percentage=(self.uploaded / self.total_size) * 100
-                    )
-                    asyncio.create_task(self._run_callback(progress))
-            
-            async def _run_callback(self, progress):
-                if asyncio.iscoroutinefunction(self.callback):
-                    await self.callback(progress)
-                else:
-                    self.callback(progress)
-        
+        # Call progress callback at start
         if progress_callback:
-            upload_args['Callback'] = ProgressCallback(progress_callback, file_size)
+            progress = UploadProgress(
+                bytes_uploaded=0,
+                total_bytes=file_size,
+                percentage=0.0
+            )
+            if asyncio.iscoroutinefunction(progress_callback):
+                await progress_callback(progress)
+            else:
+                progress_callback(progress)
         
+        # Don't add Callback to upload_args - it's not a valid S3 parameter
         with open(file_path, 'rb') as f:
             upload_args['Body'] = f
             await self._run_sync(
@@ -608,6 +603,18 @@ class S3Storage(CloudStorage):
                 **upload_args
             )
         
+        # Call progress callback at completion
+        if progress_callback:
+            progress = UploadProgress(
+                bytes_uploaded=file_size,
+                total_bytes=file_size,
+                percentage=100.0
+            )
+            if asyncio.iscoroutinefunction(progress_callback):
+                await progress_callback(progress)
+            else:
+                progress_callback(progress)
+
         return await self.get_file_info(key)
     
     async def _multipart_upload(
@@ -644,14 +651,15 @@ class S3Storage(CloudStorage):
                     if not chunk:
                         break
                     
-                    # Upload part
+                    # Upload part with Content-Length for OCI compatibility
                     part_response = await self._run_sync(
                         self._s3_client.upload_part,
                         Bucket=self.config.bucket_name,
                         Key=key,
                         PartNumber=part_number,
                         UploadId=upload_id,
-                        Body=chunk
+                        Body=chunk,
+                        ContentLength=len(chunk)  # Required for OCI Object Storage
                     )
                     
                     parts.append({
