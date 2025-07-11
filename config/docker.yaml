@@ -6,12 +6,9 @@ debug: false
 
 # Large Language Model Configuration
 llm:
-  primary_provider: "openai"
-  fallback_provider: "anthropic"
-  use_fallback: true
+  provider: "openai"
   providers:
     openai:
-      name: "openai"
       model: "gpt-4"
       base_url: null
       max_tokens: 2048
@@ -31,33 +28,15 @@ llm:
 
 # Object Storage Configuration
 object_storage:
-  provider: "aws"
   endpoint_url: null
   region: "us-east-1"
   bucket_name: "ai-3d-assets-docker"
-  bucket_public: "ai-3d-assets-public-docker"
-  custom_domain: null
   use_ssl: true
-  presigned_url_expiry: 3600
   max_file_size: 209715200  # 200MB
-  allowed_extensions:
-    - ".obj"
-    - ".gltf"
-    - ".fbx"
-    - ".glb"
-    - ".png"
-    - ".jpg"
-    - ".jpeg"
-    - ".mtl"
-    - ".zip"
-  cleanup_after_days: 30
-  multipart_threshold: 67108864  # 64MB
-  max_concurrency: 5
 
 # 3D Generation Configuration
 threed_generation:
-  primary_service: "meshy"
-  fallback_service: "kaedim"
+  service: "meshy"
   generation_timeout: 600  # 10 minutes
   polling_interval: 10
   max_polling_attempts: 120

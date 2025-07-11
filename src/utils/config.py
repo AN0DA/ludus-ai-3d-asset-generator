@@ -17,132 +17,44 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, root_validator, validator
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Load environment variables from .env file
+env_file = Path(__file__).parent.parent.parent / ".env"
+if env_file.exists():
+    load_dotenv(env_file, override=True)
+    logger.info(f"Loaded environment variables from: {env_file}")
+else:
+    logger.warning(f"No .env file found at: {env_file}")
+
 # Configuration Models
 
-
-class LLMProvider(BaseModel):
-    """Configuration for a single LLM provider."""
-
-    name: str = Field(..., description="Provider name (e.g., 'openai', 'anthropic', 'ollama')")
-    api_key: str | None = Field(default=None, description="API key for the provider")
-    base_url: str | None = Field(default=None, description="Base URL for the API (for OpenAI-compatible APIs)")
-    model: str = Field(..., description="Model name to use")
-    max_tokens: int = Field(default=2048, ge=1, le=32768, description="Maximum tokens per request")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Temperature for generation")
-    timeout: int = Field(default=60, ge=1, le=300, description="Request timeout in seconds")
-    max_retries: int = Field(default=3, ge=0, le=10, description="Maximum retry attempts")
-    retry_delay: float = Field(default=1.0, ge=0.1, le=10.0, description="Delay between retries")
-
-    @validator("api_key")
-    def validate_api_key(cls, v):
-        if v and len(v) < 10:
-            raise ValueError("API key appears to be too short")
-        return v
-
-    @validator("base_url")
-    def validate_base_url(cls, v):
-        if v and not v.startswith(("http://", "https://")):
-            raise ValueError("Base URL must start with http:// or https://")
-        return v
-
-
-class LLMConfig(BaseModel):
-    """Large Language Model configuration settings."""
-
-    primary_provider: str = Field(default="openai", description="Primary LLM provider name")
-    fallback_provider: str | None = Field(default=None, description="Fallback LLM provider name")
-
-    # Provider configurations
-    providers: dict[str, LLMProvider] = Field(
-        default_factory=lambda: {
-            "openai": LLMProvider(
-                name="openai",
-                model="gpt-4",
-                base_url=None,  # Uses default OpenAI API
-            ),
-            "anthropic": LLMProvider(
-                name="anthropic", model="claude-3-sonnet-20240229", base_url="https://api.anthropic.com"
-            ),
-        },
-        description="LLM provider configurations",
-    )
-
-    # Global settings
-    use_fallback: bool = Field(default=True, description="Use fallback provider on primary failure")
-
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_providers(cls, values):
-        primary = values.get("primary_provider")
-        fallback = values.get("fallback_provider")
-        providers = values.get("providers", {})
-
-        if primary and primary not in providers:
-            raise ValueError(f"Primary provider '{primary}' not found in providers configuration")
-
-        if fallback and fallback not in providers:
-            logger.warning(f"Fallback provider '{fallback}' not found in providers configuration")
-
-        # Validate that at least the primary provider has an API key
-        if primary and primary in providers:
-            provider_config = providers[primary]
-            if not provider_config.api_key and provider_config.name not in ["ollama", "local"]:
-                logger.warning(f"Primary provider '{primary}' has no API key configured")
-
-        return values
-
-    def get_primary_provider(self) -> LLMProvider:
-        """Get the primary provider configuration."""
-        return self.providers[self.primary_provider]
-
-    def get_fallback_provider(self) -> LLMProvider | None:
-        """Get the fallback provider configuration."""
-        if self.fallback_provider and self.fallback_provider in self.providers:
-            return self.providers[self.fallback_provider]
-        return None
-
+# Note: LLM configuration is now handled directly by environment variables
+# in the LLMGenerator class using a simple dataclass approach.
+# This eliminates complexity and configuration conflicts.
 
 class ObjectStorageConfig(BaseModel):
-    """S3-compatible object storage configuration."""
+    """Simplified S3-compatible object storage configuration."""
 
-    # Provider settings
-    provider: Literal["aws", "minio", "r2", "wasabi", "custom"] = Field(default="aws", description="Storage provider")
-    endpoint_url: str | None = Field(default=None, description="Custom endpoint URL for S3-compatible storage")
+    # Basic S3 settings
+    endpoint_url: str | None = Field(default=None, description="S3 endpoint URL (for non-AWS providers)")
     region: str = Field(default="us-east-1", description="Storage region")
-
+    
     # Credentials
-    access_key_id: str | None = Field(default=None, description="Access key ID")
-    secret_access_key: str | None = Field(default=None, description="Secret access key")
-    session_token: str | None = Field(default=None, description="Session token (for temporary credentials)")
-
+    access_key_id: str | None = Field(default=None, description="S3 access key ID")
+    secret_access_key: str | None = Field(default=None, description="S3 secret access key")
+    
     # Bucket configuration
-    bucket_name: str = Field(..., description="Primary bucket name for asset storage")
-    bucket_public: str = Field(..., description="Public bucket name for public assets")
-
-    # CDN and URLs
-    custom_domain: str | None = Field(default=None, description="Custom domain for asset URLs")
+    bucket_name: str = Field(default="ai-3d-assets", description="Bucket name for asset storage")
+    
+    # Basic settings
     use_ssl: bool = Field(default=True, description="Use SSL for connections")
-    public_url_template: str | None = Field(
-        default=None, description="URL template for public assets: {bucket}/{key} or {domain}/{key}"
-    )
-
-    # File handling
-    presigned_url_expiry: int = Field(default=3600, ge=300, le=86400, description="Pre-signed URL expiry in seconds")
     max_file_size: int = Field(default=100 * 1024 * 1024, ge=1024, description="Maximum file size in bytes")
-    allowed_extensions: list[str] = Field(
-        default=[".obj", ".gltf", ".fbx", ".glb", ".png", ".jpg", ".jpeg", ".mtl", ".zip"],
-        description="Allowed file extensions",
-    )
-    cleanup_after_days: int = Field(default=30, ge=1, description="Clean up temporary files after days")
 
-    # Performance settings
-    multipart_threshold: int = Field(default=64 * 1024 * 1024, ge=1024, description="Multipart upload threshold")
-    max_concurrency: int = Field(default=10, ge=1, le=100, description="Maximum concurrent uploads/downloads")
-
-    @validator("bucket_name", "bucket_public")
-    def validate_bucket_names(cls, v):
+    @validator("bucket_name")
+    def validate_bucket_name(cls, v):
         if not v or len(v) < 3:
             raise ValueError("Bucket name must be at least 3 characters")
         # Convert to lowercase for S3 compatibility
@@ -154,58 +66,13 @@ class ObjectStorageConfig(BaseModel):
             raise ValueError("Endpoint URL must start with http:// or https://")
         return v
 
-    @validator("custom_domain")
-    def validate_custom_domain(cls, v):
-        if v and v.startswith(("http://", "https://")):
-            raise ValueError("Custom domain should not include protocol (http/https)")
-        return v
-
-    def get_endpoint_url(self) -> str | None:
-        """Get the appropriate endpoint URL based on provider."""
-        if self.endpoint_url:
-            return self.endpoint_url
-
-        # Provider-specific endpoints
-        provider_endpoints = {
-            "aws": None,  # Use default AWS endpoints
-            "minio": "http://localhost:9000",  # Common MinIO default
-            "r2": f"https://{self.region}.r2.cloudflarestorage.com",
-            "wasabi": f"https://s3.{self.region}.wasabisys.com",
-        }
-
-        return provider_endpoints.get(self.provider)
-
-    def get_public_url(self, key: str) -> str:
-        """Generate public URL for an asset."""
-        if self.public_url_template:
-            return self.public_url_template.format(
-                bucket=self.bucket_public,
-                key=key,
-                domain=self.custom_domain or f"{self.bucket_public}.s3.{self.region}.amazonaws.com",
-            )
-
-        if self.custom_domain:
-            protocol = "https" if self.use_ssl else "http"
-            return f"{protocol}://{self.custom_domain}/{key}"
-
-        # Default S3-style URL
-        if self.provider == "aws":
-            return f"https://{self.bucket_public}.s3.{self.region}.amazonaws.com/{key}"
-        elif self.endpoint_url:
-            protocol = "https" if self.use_ssl else "http"
-            endpoint = self.endpoint_url.replace("http://", "").replace("https://", "")
-            return f"{protocol}://{endpoint}/{self.bucket_public}/{key}"
-        else:
-            return f"https://{self.bucket_public}.s3.{self.region}.amazonaws.com/{key}"
-
 
 class ThreeDGenerationConfig(BaseModel):
     """3D model generation service configuration."""
 
     meshy_api_key: str | None = Field(default=None, description="Meshy AI API key")
     kaedim_api_key: str | None = Field(default=None, description="Kaedim API key")
-    primary_service: Literal["meshy", "kaedim"] = Field(default="meshy", description="Primary 3D generation service")
-    fallback_service: Literal["meshy", "kaedim"] | None = Field(default="kaedim", description="Fallback service")
+    service: Literal["meshy", "kaedim"] = Field(default="meshy", description="3D generation service")
     generation_timeout: int = Field(default=300, ge=60, le=1800, description="Generation timeout in seconds")
     polling_interval: int = Field(default=10, ge=5, le=60, description="Status polling interval in seconds")
     max_polling_attempts: int = Field(default=120, ge=10, le=360, description="Maximum polling attempts")
@@ -215,19 +82,14 @@ class ThreeDGenerationConfig(BaseModel):
 
     @root_validator(pre=False, skip_on_failure=True)
     def validate_service_keys(cls, values):
-        primary = values.get("primary_service")
-        fallback = values.get("fallback_service")
+        service = values.get("service")
         meshy_key = values.get("meshy_api_key")
         kaedim_key = values.get("kaedim_api_key")
 
-        if primary == "meshy" and not meshy_key:
-            raise ValueError("Meshy API key is required when using meshy as primary service")
-        if primary == "kaedim" and not kaedim_key:
-            raise ValueError("Kaedim API key is required when using kaedim as primary service")
-        if fallback == "meshy" and not meshy_key:
-            logger.warning("Meshy API key not provided, fallback will be disabled")
-        if fallback == "kaedim" and not kaedim_key:
-            logger.warning("Kaedim API key not provided, fallback will be disabled")
+        if service == "meshy" and not meshy_key:
+            raise ValueError("Meshy API key is required when using meshy as service")
+        if service == "kaedim" and not kaedim_key:
+            raise ValueError("Kaedim API key is required when using kaedim as service")
 
         return values
 
@@ -304,10 +166,8 @@ class AppConfig(BaseSettings):
     debug: bool = Field(default=False)
 
     # Component configurations
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-    object_storage: ObjectStorageConfig = Field(
-        default_factory=lambda: ObjectStorageConfig(bucket_name="ai-3d-assets", bucket_public="ai-3d-assets-public")
-    )
+    # Note: LLM config is handled directly by environment variables in LLMGenerator
+    object_storage: ObjectStorageConfig = Field(default_factory=ObjectStorageConfig)
     threed_generation: ThreeDGenerationConfig = Field(default_factory=ThreeDGenerationConfig)
     gradio: GradioConfig = Field(default_factory=GradioConfig)
     database: DatabaseConfig | None = Field(default=None)
@@ -328,6 +188,7 @@ class AppConfig(BaseSettings):
         env_file_encoding = "utf-8"
         env_nested_delimiter = "__"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra environment variables that don't match the schema
 
 
 class ConfigManager:
@@ -386,18 +247,26 @@ class ConfigManager:
 
         for key, value in os.environ.items():
             if key.startswith(
-                ("LLM__", "CLOUD_STORAGE__", "THREED_GENERATION__", "GRADIO__", "DATABASE__", "LOGGING__", "SECURITY__")
+                ("LLM__", "OBJECT_STORAGE__", "STORAGE_", "THREED_GENERATION__", "GRADIO__", "DATABASE__", "LOGGING__", "SECURITY__", "APP_", "ENVIRONMENT", "DEBUG")
             ):
-                parts = key.lower().split("__")
-                current = env_overrides
+                # Handle STORAGE_ prefix mapping to object_storage
+                if key.startswith("STORAGE_"):
+                    # Map STORAGE_ACCESS_KEY_ID to object_storage.access_key_id
+                    storage_key = key.replace("STORAGE_", "").lower()
+                    if "object_storage" not in env_overrides:
+                        env_overrides["object_storage"] = {}
+                    env_overrides["object_storage"][storage_key] = self._convert_env_value(value)
+                else:
+                    parts = key.lower().split("__")
+                    current = env_overrides
 
-                for part in parts[:-1]:
-                    if part not in current:
-                        current[part] = {}
-                    current = current[part]
+                    for part in parts[:-1]:
+                        if part not in current:
+                            current[part] = {}
+                        current = current[part]
 
-                # Convert string values to appropriate types
-                current[parts[-1]] = self._convert_env_value(value)
+                    # Convert string values to appropriate types
+                    current[parts[-1]] = self._convert_env_value(value)
 
         # Merge environment overrides with config data
         self._deep_merge(config_data, env_overrides)
@@ -446,12 +315,7 @@ class ConfigManager:
             if self._config.debug:
                 logger.warning("Debug mode should be disabled in production")
 
-            # Check if at least one LLM provider has an API key
-            primary_provider = self._config.llm.get_primary_provider()
-            fallback_provider = self._config.llm.get_fallback_provider()
-
-            if not primary_provider.api_key and (not fallback_provider or not fallback_provider.api_key):
-                raise ValueError("At least one LLM provider API key must be provided in production")
+            # Note: LLM configuration is now validated independently by the LLM generator
 
             if not self._config.object_storage.access_key_id:
                 raise ValueError("Object storage credentials must be provided in production")

@@ -430,15 +430,8 @@ class BaseGenerator(ABC):
         self.name = name or self.__class__.__name__
         self.logger = structlog.get_logger(self.__class__.__module__).bind(generator=self.name)
         
-        # Validate configuration
-        try:
-            config.validate()
-        except Exception as e:
-            raise ValidationError(
-                f"Invalid configuration for {self.name}",
-                details={"validation_error": str(e)},
-                original_exception=e,
-            )
+        # The config is already validated by Pydantic during instantiation
+        # No additional validation needed here since Pydantic v2 handles validation automatically
         
         # Initialize rate limiter
         self.rate_limiter = RateLimiter(

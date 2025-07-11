@@ -114,10 +114,9 @@ def validate_api_keys(config: AppConfig) -> None:
 
     # Check LLM API keys
     primary_provider = config.llm.get_primary_provider()
-    fallback_provider = config.llm.get_fallback_provider()
 
-    if not primary_provider.api_key and (not fallback_provider or not fallback_provider.api_key):
-        errors.append("At least one LLM provider API key must be provided")
+    if not primary_provider.api_key:
+        errors.append("Primary LLM provider API key must be provided")
 
     # Check 3D generation API keys
     if not config.threed_generation.meshy_api_key and not config.threed_generation.kaedim_api_key:
@@ -197,8 +196,7 @@ def initialize_configuration(environment: str | None = None) -> AppConfig:
 
 def get_configuration_summary(config: AppConfig) -> dict:
     """Get a summary of the current configuration (without sensitive data)."""
-    primary_provider = config.llm.get_primary_provider()
-    fallback_provider = config.llm.get_fallback_provider()
+    provider = config.llm.get_provider()
 
     return {
         "environment": config.environment,
@@ -206,26 +204,22 @@ def get_configuration_summary(config: AppConfig) -> dict:
         "app_name": config.app_name,
         "app_version": config.app_version,
         "llm": {
-            "primary_provider": config.llm.primary_provider,
-            "primary_model": primary_provider.model,
-            "primary_base_url": primary_provider.base_url,
-            "fallback_provider": config.llm.fallback_provider,
-            "max_tokens": primary_provider.max_tokens,
-            "temperature": primary_provider.temperature,
-            "has_primary_key": bool(primary_provider.api_key),
-            "has_fallback_key": bool(fallback_provider.api_key) if fallback_provider else False,
-            "use_fallback": config.llm.use_fallback,
+            "provider": config.llm.provider,
+            "model": provider.model,
+            "base_url": provider.base_url,
+            "max_tokens": provider.max_tokens,
+            "temperature": provider.temperature,
+            "has_key": bool(provider.api_key),
         },
         "object_storage": {
-            "provider": config.object_storage.provider,
             "region": config.object_storage.region,
             "bucket_name": config.object_storage.bucket_name,
-            "endpoint_url": config.object_storage.get_endpoint_url(),
+            "endpoint_url": config.object_storage.endpoint_url,
             "has_credentials": bool(config.object_storage.access_key_id),
-            "custom_domain": config.object_storage.custom_domain,
+            "use_ssl": config.object_storage.use_ssl,
         },
         "threed_generation": {
-            "primary_service": config.threed_generation.primary_service,
+            "service": config.threed_generation.service,
             "quality_preset": config.threed_generation.quality_preset,
             "has_meshy_key": bool(config.threed_generation.meshy_api_key),
             "has_kaedim_key": bool(config.threed_generation.kaedim_api_key),

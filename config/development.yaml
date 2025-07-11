@@ -6,12 +6,9 @@ debug: true
 
 # Large Language Model Configuration
 llm:
-  primary_provider: "openai"
-  fallback_provider: "anthropic"
-  use_fallback: true
+  provider: "openai"
   providers:
     openai:
-      name: "openai"
       model: "gpt-4"
       base_url: null  # Uses default OpenAI API
       max_tokens: 2048
@@ -19,53 +16,18 @@ llm:
       timeout: 60
       max_retries: 3
       retry_delay: 1.0
-    anthropic:
-      name: "anthropic"
-      model: "claude-3-sonnet-20240229"
-      base_url: "https://api.anthropic.com"
-      max_tokens: 2048
-      temperature: 0.7
-      timeout: 60
-      max_retries: 3
-      retry_delay: 1.0
-    ollama:
-      name: "ollama"
-      model: "llama2"
-      base_url: "http://localhost:11434"
-      max_tokens: 2048
-      temperature: 0.7
-      timeout: 120
-      max_retries: 3
-      retry_delay: 2.0
 
 # Object Storage Configuration
 object_storage:
-  provider: "aws"  # aws, minio, r2, wasabi, custom
-  endpoint_url: null  # Use default for AWS, set for others
+  endpoint_url: null  # Use default for AWS, set for others like MinIO
   region: "us-east-1"
   bucket_name: "ai-3d-assets-dev"
-  bucket_public: "ai-3d-assets-public-dev"
-  custom_domain: null
   use_ssl: true
-  presigned_url_expiry: 3600
   max_file_size: 104857600  # 100MB
-  allowed_extensions:
-    - ".obj"
-    - ".gltf"
-    - ".fbx"
-    - ".glb"
-    - ".png"
-    - ".jpg"
-    - ".jpeg"
-    - ".mtl"
-  cleanup_after_days: 7
-  multipart_threshold: 67108864  # 64MB
-  max_concurrency: 5
 
 # 3D Generation Configuration
 threed_generation:
-  primary_service: "meshy"
-  fallback_service: "kaedim"
+  service: "meshy"
   generation_timeout: 300
   polling_interval: 10
   max_polling_attempts: 60

@@ -243,9 +243,12 @@ class BaseServiceIntegration:
     
     async def initialize(self):
         """Initialize the service integration."""
-        if aiohttp and not self.session:
-            timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
-            self.session = aiohttp.ClientSession(timeout=timeout)
+        if aiohttp:
+            # Always create a new session if one doesn't exist or is closed
+            if not self.session or self.session.closed:
+                timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+                self.session = aiohttp.ClientSession(timeout=timeout)
+                logger.info(f"Created new HTTP session for {self.__class__.__name__}")
     
     async def cleanup(self):
         """Clean up resources."""
@@ -283,26 +286,40 @@ class BaseServiceIntegration:
     
     def can_handle_request(self, request: GenerationRequest) -> bool:
         """Check if this service can handle the given request."""
+        logger.info(f"Checking if service can handle request", 
+                   service_type=self.__class__.__name__,
+                   generation_method=request.generation_method,
+                   output_format=request.output_format,
+                   quality_level=request.quality_level)
+        
         # Check rate limits
         if not self.rate_limit_info.can_make_request(self.config):
+            logger.info("Service rejected: rate limit exceeded")
             return False
         
         # Check service capabilities
         if request.generation_method == GenerationMethod.TEXT_TO_3D:
             if not self.config.supports_text_to_3d:
+                logger.info("Service rejected: doesn't support text-to-3D")
                 return False
         elif request.generation_method == GenerationMethod.IMAGE_TO_3D:
             if not self.config.supports_image_to_3d:
+                logger.info("Service rejected: doesn't support image-to-3D")
                 return False
         
         # Check output format support
+        logger.info(f"Checking output format support: {request.output_format} in {self.config.supported_output_formats}")
         if request.output_format not in self.config.supported_output_formats:
+            logger.info(f"Service rejected: doesn't support format {request.output_format}")
             return False
         
         # Check quality level support
+        logger.info(f"Checking quality level support: {request.quality_level} in {self.config.quality_levels}")
         if request.quality_level not in self.config.quality_levels:
+            logger.info(f"Service rejected: doesn't support quality level {request.quality_level}")
             return False
         
+        logger.info("Service CAN handle request - all checks passed!")
         return True
     
     async def generate_3d_asset(
@@ -331,6 +348,20 @@ class BaseServiceIntegration:
 class MeshyAIIntegration(BaseServiceIntegration):
     """Meshy AI service integration for text-to-3D generation."""
     
+    async def check_health(self) -> ServiceStatus:
+        """Check service health status for Meshy AI."""
+        # For Meshy AI, we don't have a dedicated health endpoint
+        # So we'll assume it's available if we have an API key
+        if self.config.api_key:
+            self._health_status = ServiceStatus.AVAILABLE
+            logger.info("Meshy AI service marked as available (API key present)")
+        else:
+            self._health_status = ServiceStatus.UNAVAILABLE
+            logger.warning("Meshy AI service marked as unavailable (no API key)")
+        
+        self._last_health_check = datetime.utcnow()
+        return self._health_status
+    
     async def generate_3d_asset(
         self, 
         request: GenerationRequest,
@@ -342,9 +373,15 @@ class MeshyAIIntegration(BaseServiceIntegration):
         
         logger.info("Starting Meshy AI generation", 
                    request_id=request_id, 
-                   description=request.description)
+                   description=request.description,
+                   quality_level=request.quality_level)
         
         try:
+            # Ensure session is initialized and not closed
+            if not self.session or self.session.closed:
+                logger.info("Session not available or closed, reinitializing...")
+                await self.initialize()
+            
             # Update progress
             if progress_callback:
                 progress_callback(ProgressUpdate(
@@ -357,20 +394,31 @@ class MeshyAIIntegration(BaseServiceIntegration):
             # Record rate limit usage
             self.rate_limit_info.record_request()
             
-            # Prepare request payload
+            # Prepare request payload for Meshy API v2
             payload = {
-                "mode": "text",
+                "mode": "preview",  # Start with preview mode
                 "prompt": request.description,
                 "art_style": self._map_style_to_meshy(request.style_preference),
-                "negative_prompt": "low quality, blurry, distorted",
             }
             
-            # Quality settings
-            if request.quality_level == QualityLevel.HIGH:
-                payload["texture_richness"] = "high"
-            elif request.quality_level == QualityLevel.ULTRA:
-                payload["texture_richness"] = "high"
+            # Add optional parameters based on quality level
+            if request.quality_level == QualityLevel.DRAFT:
+                payload["target_polycount"] = 15000  # Lower polygon count for draft
+            elif request.quality_level == QualityLevel.STANDARD:
+                payload["target_polycount"] = 30000
+            elif request.quality_level == QualityLevel.HIGH:
+                payload["target_polycount"] = 60000
                 payload["topology"] = "quad"
+            elif request.quality_level == QualityLevel.ULTRA:
+                payload["target_polycount"] = 100000
+                payload["topology"] = "quad"
+                payload["ai_model"] = "meshy-5"  # Use newer model for ultra quality
+            
+            # Add polygon count if specified
+            if request.max_polygon_count:
+                payload["target_polycount"] = min(request.max_polygon_count, 300000)
+            
+            logger.info(f"Meshy payload: {payload}")
             
             # Start generation
             headers = {
@@ -378,14 +426,23 @@ class MeshyAIIntegration(BaseServiceIntegration):
                 "Content-Type": "application/json"
             }
             
-            if self.session:
+            logger.info(f"Making request to: {self.config.base_url}/openapi/v2/text-to-3d")
+            logger.info(f"Session status: {self.session is not None}")
+            
+            if not self.session:
+                logger.error("HTTP session is None, cannot make request")
+                raise APIError("HTTP session not available", error_code="NO_HTTP_SESSION")
+            
+            try:
                 async with self.session.post(
-                    f"{self.config.base_url}/v2/text-to-3d",
+                    f"{self.config.base_url}/openapi/v2/text-to-3d",
                     headers=headers,
                     json=payload
                 ) as response:
+                    logger.info(f"Meshy API response status: {response.status}")
                     if response.status != 200:
                         error_text = await response.text()
+                        logger.error(f"Meshy API error: {response.status} - {error_text}")
                         raise APIError(
                             f"Meshy AI request failed: {response.status}",
                             error_code="MESHY_REQUEST_FAILED",
@@ -394,8 +451,10 @@ class MeshyAIIntegration(BaseServiceIntegration):
                     
                     result_data = await response.json()
                     task_id = result_data["result"]
-            else:
-                raise APIError("HTTP session not available", error_code="NO_HTTP_SESSION")
+                    logger.info(f"Meshy task created: {task_id}")
+            except Exception as e:
+                logger.error(f"HTTP request failed: {type(e).__name__}: {e}")
+                raise
             
             # Update progress
             if progress_callback:
@@ -408,7 +467,7 @@ class MeshyAIIntegration(BaseServiceIntegration):
             
             # Poll for completion
             model_url = await self._poll_meshy_completion(
-                task_id, request_id, progress_callback
+                task_id, request_id, request, progress_callback
             )
             
             # Update progress
@@ -467,16 +526,17 @@ class MeshyAIIntegration(BaseServiceIntegration):
         if style is None:
             return "realistic"
             
+        # Meshy API only supports "realistic" and "sculpture" styles
         style_mapping = {
             StylePreference.REALISTIC: "realistic",
-            StylePreference.STYLIZED: "cartoon",
-            StylePreference.CARTOON: "cartoon",
-            StylePreference.LOW_POLY: "low-poly",
-            StylePreference.FANTASY: "fantasy",
-            StylePreference.SCI_FI: "sci-fi",
-            StylePreference.MEDIEVAL: "medieval",
-            StylePreference.MODERN: "modern",
-            StylePreference.FUTURISTIC: "futuristic"
+            StylePreference.STYLIZED: "sculpture",  # Stylized maps to sculpture
+            StylePreference.CARTOON: "sculpture",   # Cartoon maps to sculpture
+            StylePreference.LOW_POLY: "realistic",  # Low poly uses realistic base
+            StylePreference.FANTASY: "realistic",   # Fantasy uses realistic base
+            StylePreference.SCI_FI: "realistic",    # Sci-fi uses realistic base
+            StylePreference.MEDIEVAL: "realistic",  # Medieval uses realistic base
+            StylePreference.MODERN: "realistic",    # Modern uses realistic base
+            StylePreference.FUTURISTIC: "realistic" # Futuristic uses realistic base
         }
         return style_mapping.get(style, "realistic")
     
@@ -484,6 +544,7 @@ class MeshyAIIntegration(BaseServiceIntegration):
         self, 
         task_id: str, 
         request_id: str,
+        request: GenerationRequest,
         progress_callback: Optional[Callable[[ProgressUpdate], None]] = None
     ) -> str:
         """Poll Meshy AI for task completion."""
@@ -496,29 +557,44 @@ class MeshyAIIntegration(BaseServiceIntegration):
             try:
                 if self.session:
                     async with self.session.get(
-                        f"{self.config.base_url}/v2/text-to-3d/{task_id}",
+                        f"{self.config.base_url}/openapi/v2/text-to-3d/{task_id}",
                         headers=headers
                     ) as response:
                         if response.status != 200:
+                            error_text = await response.text()
+                            logger.error(f"Meshy status check failed: {response.status} - {error_text}")
                             raise APIError(f"Failed to check Meshy status: {response.status}")
                         
                         data = await response.json()
                         status = data.get("status")
+                        progress = data.get("progress", 0)
+                        
+                        logger.info(f"Meshy task {task_id} status: {status}, progress: {progress}%")
                         
                         if status == "SUCCEEDED":
-                            return data["model_urls"]["glb"]
+                            # Check if we have model URLs
+                            model_urls = data.get("model_urls", {})
+                            if request.output_format == FileFormat.OBJ and "obj" in model_urls:
+                                return model_urls["obj"]
+                            elif request.output_format == FileFormat.GLB and "glb" in model_urls:
+                                return model_urls["glb"]  
+                            elif request.output_format == FileFormat.GLTF and "gltf" in model_urls:
+                                return model_urls["gltf"]
+                            else:
+                                # Fallback to GLB if requested format not available
+                                return model_urls.get("glb", model_urls.get("obj", ""))
                         elif status == "FAILED":
-                            error_msg = data.get("error", "Unknown error")
+                            error_msg = data.get("task_error", {}).get("message", "Unknown error")
                             raise APIError(f"Meshy generation failed: {error_msg}")
                         elif status in ["PENDING", "IN_PROGRESS"]:
-                            # Update progress
-                            progress = 30.0 + (attempt / max_attempts) * 50.0
+                            # Update progress based on actual progress from API
+                            api_progress = 30.0 + (progress * 0.5)  # Map 0-100% to 30-80% of our progress
                             if progress_callback:
                                 progress_callback(ProgressUpdate(
                                     request_id=request_id,
                                     status=GenerationStatus.PROCESSING,
-                                    progress_percentage=progress,
-                                    current_step=f"Meshy AI processing ({status.lower()})"
+                                    progress_percentage=api_progress,
+                                    current_step=f"Meshy AI processing ({status.lower()}, {progress}%)"
                                 ))
                             
                             await asyncio.sleep(5)
@@ -898,17 +974,24 @@ class Asset3DGenerator:
     ) -> Tuple[Optional[BaseServiceIntegration], ServiceProvider]:
         """Select the best service for the given request."""
         
+        logger.info(f"Selecting service for request. Method: {request.generation_method}, Format: {request.output_format}")
+        logger.info(f"Available services: {list(self.services.keys())}")
+        
         # If user specified a preferred service, try it first
         if request.preferred_service and request.preferred_service in self.services:
             service = self.services[request.preferred_service]
-            if service.can_handle_request(request):
+            can_handle = service.can_handle_request(request)
+            logger.info(f"Preferred service {request.preferred_service} can handle: {can_handle}")
+            if can_handle:
                 return service, request.preferred_service
         
         # Score services based on various factors
         service_scores = []
         
         for provider, service in self.services.items():
-            if not service.can_handle_request(request):
+            can_handle = service.can_handle_request(request)
+            logger.info(f"Service {provider} can handle request: {can_handle}")
+            if not can_handle:
                 continue
             
             # Calculate score based on:
@@ -921,11 +1004,13 @@ class Asset3DGenerator:
             
             # Health check
             health_status = await service.check_health()
+            logger.info(f"Service {provider} health check result: {health_status}")
             if health_status == ServiceStatus.AVAILABLE:
                 score += 100
             elif health_status == ServiceStatus.DEGRADED:
                 score += 50
             else:
+                logger.warning(f"Service {provider} marked as unavailable, skipping")
                 continue  # Skip unavailable services
             
             # Cost factor (lower cost = higher score)
@@ -1119,7 +1204,7 @@ def create_default_configs() -> Dict[ServiceProvider, ServiceConfig]:
             supports_text_to_3d=True,
             supports_image_to_3d=True,
             supported_output_formats=[FileFormat.OBJ, FileFormat.GLTF, FileFormat.GLB],
-            quality_levels=[QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
+            quality_levels=[QualityLevel.DRAFT, QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
         ),
         ServiceProvider.KAEDIM: ServiceConfig(
             api_key=os.getenv("KAEDIM_API_KEY", ""),
