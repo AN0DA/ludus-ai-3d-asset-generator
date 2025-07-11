@@ -1,251 +1,197 @@
 """
-Simplified components module for backward compatibility.
+UI Components for the AI 3D Asset Generator.
 
-This module provides essential components with simplified styling,
-maintaining API compatibility while reducing complexity.
+This module contains methods to create various UI components for the Gradio interface.
 """
+
 
 import gradio as gr
-from typing import Any, Dict, List, Tuple
-from datetime import datetime
 
-from ..models.asset_model import AssetType, StylePreference, QualityLevel, FileFormat
-from .utils import UIUtils
-
-
-# Simplified CSS - much shorter and focused
-SIMPLE_CSS = """
-/* Simple, clean styling */
-.form-section {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 1.5rem;
-    margin: 1rem 0;
-}
-
-.form-section h3 {
-    color: #2d3748;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #3b82f6;
-}
-
-.status-success {
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid #10b981;
-    color: #10b981;
-    padding: 0.75rem;
-    border-radius: 6px;
-    font-weight: 500;
-}
-
-.status-error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid #ef4444;
-    color: #ef4444;
-    padding: 0.75rem;
-    border-radius: 6px;
-    font-weight: 500;
-}
-
-.progress-container {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 1rem;
-    margin: 1rem 0;
-}
-
-.progress-bar {
-    background: #e2e8f0;
-    border-radius: 4px;
-    height: 6px;
-    overflow: hidden;
-    margin: 0.5rem 0;
-}
-
-.progress-fill {
-    background: #3b82f6;
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-}
-"""
-
-# Minimal JavaScript
-SIMPLE_JS = """
-// Simple progress update function
-function updateProgress(percentage, message) {
-    const progressBar = document.querySelector('.progress-fill');
-    const progressText = document.querySelector('.progress-text');
-    
-    if (progressBar) {
-        progressBar.style.width = percentage + '%';
-    }
-    
-    if (progressText) {
-        progressText.textContent = message;
-    }
-}
-"""
+from src.models.asset_model import AssetType, FileFormat, QualityLevel, StylePreference
 
 
 class UIComponents:
-    """Simplified UI components for backward compatibility."""
-    
+    """Factory class for creating UI components."""
+
     @staticmethod
-    def create_header() -> gr.HTML:
-        """Create a simple header."""
-        return gr.HTML(
-            value="""
-            <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; border-radius: 8px; margin-bottom: 2rem;">
-                <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎯 AI 3D Asset Generator</h1>
-                <p style="font-size: 1.1rem; opacity: 0.9;">Transform your ideas into stunning 3D models</p>
+    def create_header() -> None:
+        """Create the application header."""
+        gr.HTML("""
+            <div class="app-header">
+                <h1 class="app-title">🎯 AI 3D Asset Generator</h1>
+                <p class="app-subtitle">Transform your ideas into stunning 3D models</p>
             </div>
-            """
-        )
-    
+        """)
+
     @staticmethod
-    def create_input_form() -> Tuple[gr.Group, Dict[str, gr.Component]]:
-        """Create a simplified input form."""
-        components = {}
-        
-        with gr.Group(elem_classes=["form-section"]) as form_group:
-            gr.HTML("<h3>🎨 Asset Description</h3>")
-            
-            components["description"] = gr.Textbox(
+    def create_generation_form() -> tuple[gr.Textbox, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Button]:
+        """Create the asset generation form components."""
+        with gr.Group(elem_classes=["section-card"]):
+            gr.HTML('<h3 class="section-title">🎨 Asset Description</h3>')
+
+            description = gr.Textbox(
                 label="Describe your 3D asset",
-                placeholder="e.g., A mystical sword with glowing runes...",
-                lines=3,
-                info="Provide a detailed description (minimum 10 characters)"
+                placeholder="e.g., A mystical sword with glowing blue runes and intricate metalwork...",
+                lines=4,
+                elem_classes=["form-input"],
+                info="Minimum 10 characters, maximum 2000 characters",
             )
-            
+
             with gr.Row():
-                components["asset_type"] = gr.Dropdown(
+                asset_type = gr.Dropdown(
                     label="Asset Type",
                     choices=[(t.value.title(), t.value) for t in AssetType],
-                    value=AssetType.WEAPON.value
+                    value=AssetType.WEAPON.value,
+                    elem_classes=["form-input"],
+                    info="Select the type of 3D asset to generate",
                 )
-                
-                components["style"] = gr.Dropdown(
+
+                style = gr.Dropdown(
                     label="Art Style",
                     choices=[(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                    value=StylePreference.REALISTIC.value
+                    value=StylePreference.REALISTIC.value,
+                    elem_classes=["form-input"],
+                    info="Choose the visual style",
                 )
-            
+
             with gr.Row():
-                components["quality"] = gr.Dropdown(
+                quality = gr.Dropdown(
                     label="Quality Level",
                     choices=[(q.value.title(), q.value) for q in QualityLevel],
-                    value=QualityLevel.STANDARD.value
+                    value=QualityLevel.STANDARD.value,
+                    elem_classes=["form-input"],
+                    info="Higher quality = more detail, longer generation time",
                 )
-                
-                components["format"] = gr.Dropdown(
+
+                format_choice = gr.Dropdown(
                     label="Output Format",
                     choices=[(f.value.upper(), f.value) for f in FileFormat],
-                    value=FileFormat.OBJ.value
+                    value=FileFormat.OBJ.value,
+                    elem_classes=["form-input"],
+                    info="3D model file format",
                 )
-        
-        return form_group, components
-    
+
+            generate_btn = gr.Button("🚀 Generate Asset", variant="primary", elem_classes=["btn-primary"], size="lg")
+
+        return description, asset_type, style, quality, format_choice, generate_btn
+
     @staticmethod
-    def create_progress_display() -> Tuple[gr.Group, Dict[str, gr.Component]]:
-        """Create a simplified progress display."""
-        components = {}
-        
-        with gr.Group(elem_classes=["progress-container"], visible=False) as progress_group:
-            gr.HTML("<h3>📊 Progress</h3>")
-            
-            components["status"] = gr.HTML(
-                value=UIUtils.create_status_html("info", "Ready to generate")
+    def create_progress_section() -> tuple[gr.HTML, gr.HTML, gr.Button]:
+        """Create the progress monitoring section."""
+        with gr.Group(elem_classes=["section-card"]):
+            gr.HTML('<h3 class="section-title">📊 Progress</h3>')
+
+            status_display = gr.HTML('<div class="status-success">Ready to generate</div>')
+
+            progress_display = gr.HTML(
+                """
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <p>Waiting to start...</p>
+                </div>
+                """,
+                visible=False,
             )
-            
-            components["progress_bar"] = gr.HTML(
-                value=UIUtils.create_progress_html(0, "Waiting to start...")
+
+            cancel_btn = gr.Button(
+                "❌ Cancel Generation", variant="secondary", elem_classes=["btn-secondary"], visible=False
             )
-            
-            components["cancel_button"] = gr.Button(
-                value="Cancel Generation",
-                variant="secondary",
-                visible=False
-            )
-        
-        return progress_group, components
-    
-    @staticmethod
-    def create_results_display() -> Tuple[gr.Group, Dict[str, gr.Component]]:
-        """Create a simplified results display."""
-        components = {}
-        
-        with gr.Group(elem_classes=["form-section"], visible=False) as results_group:
-            gr.HTML("<h3>✨ Generated Asset</h3>")
-            
-            with gr.Row():
-                with gr.Column(scale=2):
-                    components["model_viewer"] = gr.Model3D(
-                        label="3D Model Preview"
-                    )
-                
-                with gr.Column(scale=1):
-                    components["thumbnail"] = gr.Image(
-                        label="Thumbnail",
-                        show_label=False
-                    )
-                    
-                    components["metadata"] = gr.HTML(
-                        value="<div>No metadata available</div>"
-                    )
-            
-            components["download_model"] = gr.File(
-                label="Download Model",
-                visible=False
-            )
-        
-        return results_group, components
-    
+
+        return status_display, progress_display, cancel_btn
+
     @staticmethod
     def create_error_display() -> gr.HTML:
-        """Create error message display."""
-        return gr.HTML(
-            value="",
-            visible=False,
-            elem_classes=["status-error"]
-        )
-    
-    @staticmethod
-    def create_status_badge(status: str, message: str) -> str:
-        """Create a status badge HTML."""
-        return UIUtils.create_status_html(status, message)
-    
-    @staticmethod
-    def format_metadata(metadata: Dict[str, Any]) -> str:
-        """Format asset metadata for display."""
-        return UIUtils.format_metadata(metadata)
-    
-    @staticmethod
-    def validate_inputs(
-        description: str,
-        asset_type: str,
-        polygon_count: int = 25000,
-        priority: int = 5
-    ) -> Tuple[bool, List[str]]:
-        """Validate form inputs."""
-        return UIUtils.validate_inputs(description, asset_type, polygon_count, priority)
-    
-    @staticmethod
-    def create_validation_feedback(errors: List[str]) -> str:
-        """Create validation error feedback."""
-        return UIUtils.create_validation_feedback(errors)
+        """Create the error display component."""
+        return gr.HTML(visible=False, elem_classes=["error-display"])
 
+    @staticmethod
+    def create_help_section() -> None:
+        """Create the help/tips section."""
+        gr.HTML("""
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-top: 1rem;">
+            <h4 style="margin: 0 0 0.5rem 0; color: #374151;">💡 Tips for Better Results</h4>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #6b7280; font-size: 0.9rem;">
+                <li>Be specific about materials, colors, and style</li>
+                <li>Mention size and proportions if important</li>
+                <li>Include details about purpose or function</li>
+                <li>Higher quality levels take longer but produce better results</li>
+            </ul>
+        </div>
+        """)
 
-# Export for compatibility
-CUSTOM_CSS = SIMPLE_CSS
-CUSTOM_JS = SIMPLE_JS
+    @staticmethod
+    def create_results_section(
+        storage_available: bool,
+    ) -> tuple[gr.Model3D, gr.HTML, gr.Button, gr.Button, gr.File, gr.Dropdown, gr.Button]:
+        """Create the results display section."""
+        with gr.Group(elem_classes=["section-card"]):
+            gr.HTML('<h3 class="section-title">✨ Generated Asset</h3>')
 
-__all__ = [
-    "UIComponents",
-    "CUSTOM_CSS", 
-    "CUSTOM_JS"
-]
+            # Storage status info
+            if not storage_available:
+                gr.HTML("""
+                <div class="status-warning">
+                    ⚠️ Cloud storage not configured. Only current session assets will be available.
+                </div>
+                """)
+
+            with gr.Row():
+                with gr.Column(scale=2):
+                    model_viewer = gr.Model3D(label="3D Model Preview", elem_classes=["model-viewer"])
+
+                with gr.Column(scale=1):
+                    metadata_display = gr.HTML(
+                        '<div class="no-asset">No asset loaded. Generate an asset first or select from the list below.</div>'
+                    )
+
+            with gr.Row():
+                download_btn = gr.Button(
+                    "📥 Download Model", variant="primary", elem_classes=["btn-primary"], visible=False
+                )
+
+                share_btn = gr.Button(
+                    "🔗 Share Asset", variant="secondary", elem_classes=["btn-secondary"], visible=False
+                )
+
+            download_file = gr.File(label="Download", visible=False)
+
+            # Asset selection dropdown
+            with gr.Row():
+                with gr.Column(scale=4):
+                    asset_list = gr.Dropdown(
+                        label="Available Models", choices=[], interactive=True, elem_classes=["dropdown-assets"]
+                    )
+                with gr.Column(scale=1):
+                    refresh_assets_btn = gr.Button(
+                        "🔄 Refresh", variant="secondary", elem_classes=["btn-secondary"], size="sm"
+                    )
+
+        return model_viewer, metadata_display, download_btn, share_btn, download_file, asset_list, refresh_assets_btn
+
+    @staticmethod
+    def create_history_section() -> tuple[gr.Gallery, gr.Button, gr.Button]:
+        """Create the generation history section."""
+        with gr.Group(elem_classes=["section-card"]):
+            gr.HTML('<h3 class="section-title">📚 Generation History</h3>')
+
+            history_gallery = gr.Gallery(
+                label="Recent Generations",
+                show_label=False,
+                elem_classes=["gallery-container"],
+                columns=3,
+                height="auto",
+            )
+
+            with gr.Row():
+                refresh_history_btn = gr.Button("🔄 Refresh", elem_classes=["btn-secondary"])
+
+                clear_history_btn = gr.Button("🗑️ Clear History", elem_classes=["btn-secondary"])
+
+        return history_gallery, refresh_history_btn, clear_history_btn
+
+    @staticmethod
+    def create_timer() -> gr.Timer:
+        """Create a timer for progress monitoring."""
+        return gr.Timer(value=2, active=False)
