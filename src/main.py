@@ -70,10 +70,7 @@ async def initialize_app() -> AssetGenerationApp:
 
 
 def main():
-    """Main entry point for the application."""
-    print("🚀 Starting AI 3D Asset Generator (Refactored UI)")
-    print("=" * 50)
-    
+    """Main entry point for the application."""   
     try:
         # Get configuration settings
         settings = get_settings()
@@ -81,14 +78,7 @@ def main():
         # Initialize the application
         app = asyncio.run(initialize_app())
         
-        # Create the new refactored Gradio interface
-        print("🌐 Creating refactored web interface...")
         interface = create_app_interface(app)
-        
-        # Launch the application with settings from environment
-        print(f"🎉 Launching application on http://{settings.gradio_host}:{settings.gradio_port}")
-        print("📱 Interface: Modern, simplified UI with improved UX")
-        print("=" * 50)
         
         interface.launch(
             server_name=settings.gradio_host,
@@ -100,15 +90,10 @@ def main():
         )
         
     except KeyboardInterrupt:
-        print("\n⏹️  Application stopped by user")
+        logger.info("Application interrupted by user")
     except Exception as e:
         logger.error("Application failed to start", error=str(e))
-        print(f"❌ Error: {e}")
-        print("💡 Tip: Check that all dependencies are installed and configuration is correct")
         sys.exit(1)
-    finally:
-        print("🧹 Cleaning up...")
-        # Cleanup would happen here if needed
 
 
 if __name__ == "__main__":

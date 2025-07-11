@@ -3,10 +3,15 @@ Universal S3-compatible cloud storage implementation.
 
 This module provides a concrete implementation of the CloudStorage interface
 for any S3-compatible storage service including AWS S3, MinIO, CloudFlare R2,
-DigitalOcean Spaces, Wasabi, Backblaze B2, and others.
+DigitalOcean Spaces, Wasabi, Backblaze B2, Oracle Cloud Infrastructure (OCI)
+Object Storage, and others.
 
 All modern object storage services support the S3 API, making this a universal
 solution for cloud storage needs.
+
+Note: This implementation includes specific compatibility fixes for Oracle Cloud
+Infrastructure (OCI) Object Storage, which requires explicit Content-Length
+headers in upload operations.
 """
 
 import asyncio
@@ -180,6 +185,7 @@ class S3Storage(CloudStorage):
             # Prepare upload parameters
             upload_args = {
                 'ContentType': content_type,
+                'ContentLength': file_size,  # Required for OCI Object Storage
                 'ACL': (permission or self.config.default_permission).value,
             }
             
@@ -217,6 +223,7 @@ class S3Storage(CloudStorage):
             upload_args = {
                 'Body': data,
                 'ContentType': content_type,
+                'ContentLength': len(data),  # Required for OCI Object Storage
                 'ACL': (permission or self.config.default_permission).value,
             }
             
@@ -644,14 +651,15 @@ class S3Storage(CloudStorage):
                     if not chunk:
                         break
                     
-                    # Upload part
+                    # Upload part with Content-Length for OCI compatibility
                     part_response = await self._run_sync(
                         self._s3_client.upload_part,
                         Bucket=self.config.bucket_name,
                         Key=key,
                         PartNumber=part_number,
                         UploadId=upload_id,
-                        Body=chunk
+                        Body=chunk,
+                        ContentLength=len(chunk)  # Required for OCI Object Storage
                     )
                     
                     parts.append({

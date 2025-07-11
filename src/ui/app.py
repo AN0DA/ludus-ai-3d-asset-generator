@@ -14,12 +14,12 @@ from pathlib import Path
 from datetime import datetime
 import structlog
 
-from ..core.app import AssetGenerationApp
-from ..models.asset_model import (
+from src.core.app import AssetGenerationApp
+from src.models.asset_model import (
     AssetType, StylePreference, QualityLevel, FileFormat,
     GenerationStatus, AssetMetadata
 )
-from ..utils.validators import ValidationException
+from src.utils.validators import ValidationException
 
 logger = structlog.get_logger(__name__)
 
@@ -226,6 +226,74 @@ MODERN_CSS = """
     background: var(--surface);
 }
 
+/* Results Tab Styles */
+.asset-metadata {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 0.5rem 0;
+}
+
+.asset-metadata h4 {
+    margin: 0 0 1rem 0;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+}
+
+.metadata-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.metadata-grid div {
+    padding: 0.5rem;
+    background: var(--background);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+}
+
+/* Asset dropdown styling */
+.dropdown-assets {
+    margin-top: 1rem;
+}
+
+.dropdown-assets label {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.dropdown-assets select {
+    border: 2px solid var(--border-color) !important;
+    border-radius: var(--radius) !important;
+    padding: 0.75rem !important;
+    background: var(--surface) !important;
+    color: var(--text-primary) !important;
+    font-size: 0.9rem !important;
+}
+
+.dropdown-assets select:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+}
+
+.description {
+    padding: 1rem;
+    background: var(--background);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--primary-color);
+}
+
+.no-asset {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .app-title {
@@ -300,10 +368,19 @@ class Asset3DGeneratorUI:
     """Simplified, consolidated Gradio interface for 3D asset generation."""
     
     def __init__(self, app: AssetGenerationApp):
-        """Initialize the UI with the asset generation app."""
+        """Initialize the UI with the application instance."""
         self.app = app
-        self.current_task_id: Optional[str] = None
-        self.generation_history: List[AssetMetadata] = []
+        self.generation_history = []
+        self.current_task_id = None
+        self._progress_refresh_timer = None
+        # Track the latest generated asset for the Results tab
+        self.latest_asset_info = None
+        
+        # Check if cloud storage is available
+        self.storage_available = self.app.cloud_storage is not None
+        
+        # Track currently selected asset for downloads
+        self.current_asset_key = None
     
     def create_interface(self) -> gr.Blocks:
         """Create the main Gradio interface."""
@@ -475,6 +552,16 @@ class Asset3DGeneratorUI:
         with gr.Group(elem_classes=["section-card"]):
             gr.HTML('<h3 class="section-title">✨ Generated Asset</h3>')
             
+            # Storage status info
+            if not self.storage_available:
+                gr.HTML('''
+                <div class="status-warning">
+                    ⚠️ Cloud storage not configured. Only current session assets will be available.
+                </div>
+                ''')
+            
+
+            
             with gr.Row():
                 with gr.Column(scale=2):
                     model_viewer = gr.Model3D(
@@ -483,13 +570,8 @@ class Asset3DGeneratorUI:
                     )
                 
                 with gr.Column(scale=1):
-                    thumbnail = gr.Image(
-                        label="Thumbnail",
-                        show_label=False
-                    )
-                    
                     metadata_display = gr.HTML(
-                        '<div>No asset generated yet</div>'
+                        '<div class="no-asset">No asset loaded. Generate an asset first or select from the list below.</div>'
                     )
             
             with gr.Row():
@@ -511,6 +593,43 @@ class Asset3DGeneratorUI:
                 label="Download",
                 visible=False
             )
+            # Expandable list of models in /assets, sorted by date added (newest first)
+            with gr.Row():
+                with gr.Column(scale=4):
+                    asset_list = gr.Dropdown(
+                        label="Available Models",
+                        choices=self._refresh_asset_list(),
+                        interactive=True,
+                        elem_classes=["dropdown-assets"]
+                    )
+                with gr.Column(scale=1):
+                    refresh_assets_btn = gr.Button(
+                        "🔄 Refresh",
+                        variant="secondary",
+                        elem_classes=["btn-secondary"],
+                        size="sm"
+                    )
+        
+
+        
+        # Wire up asset selection
+        asset_list.change(
+            fn=self._display_selected_asset,
+            inputs=[asset_list],
+            outputs=[model_viewer, metadata_display, download_btn, share_btn]
+        )
+        
+        # Wire up refresh button
+        refresh_assets_btn.click(
+            fn=self._refresh_asset_list,
+            outputs=[asset_list]
+        )
+        
+        # Wire up download button
+        download_btn.click(
+            fn=lambda: self._download_selected_asset(self.current_asset_key) if self.current_asset_key else None,
+            outputs=[download_file]
+        )
     
     def _create_history_tab(self):
         """Create the generation history tab."""
@@ -822,7 +941,8 @@ class Asset3DGeneratorUI:
             
             # Start the progress timer if generation started successfully
             if len(result) >= 4 and result[3]:  # cancel_btn visible means task started
-                self._progress_refresh_timer.active = True
+                if hasattr(self, '_progress_refresh_timer') and self._progress_refresh_timer:
+                    self._progress_refresh_timer.active = True
             return result
                 
         except Exception as e:
@@ -889,7 +1009,7 @@ class Asset3DGeneratorUI:
             try:
                 result = loop.run_until_complete(self._cancel_generation_async())
                 # Stop the progress timer
-                if hasattr(self, '_progress_refresh_timer'):
+                if hasattr(self, '_progress_refresh_timer') and self._progress_refresh_timer:
                     self._progress_refresh_timer.active = False
                 return result
             finally:
@@ -930,12 +1050,53 @@ class Asset3DGeneratorUI:
             if status == "completed":
                 # Task completed successfully
                 self.current_task_id = None
-                return '''
+                
+                # Enhanced completion message with view results button
+                completion_html = '''
                 <div class="status-success">
                     ✅ <strong>Generation Complete!</strong>
                     <br><small>Your 3D asset has been generated successfully.</small>
+                    <br><br>
+                    <button onclick="switchToResultsTab()" class="view-results-btn" style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        font-size: 14px;
+                        transition: all 0.3s ease;
+                        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)'" 
+                       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)'">
+                        🎯 View Results
+                    </button>
                 </div>
-                ''', '', False, False
+                
+                <script>
+                function switchToResultsTab() {
+                    // Find the Results tab and click it
+                    const tabs = document.querySelectorAll('[role="tab"]');
+                    for (let tab of tabs) {
+                        if (tab.textContent.includes('Results') || tab.textContent.includes('📋')) {
+                            tab.click();
+                            // Give tab time to switch, then refresh the asset list
+                            setTimeout(() => {
+                                const refreshBtn = document.querySelector('button:contains("🔄 Refresh")') || 
+                                                 [...document.querySelectorAll('button')].find(btn => 
+                                                     btn.textContent.includes('🔄 Refresh'));
+                                if (refreshBtn) {
+                                    refreshBtn.click();
+                                }
+                            }, 500);
+                            break;
+                        }
+                    }
+                }
+                </script>
+                '''
+                return completion_html, '', False, False
             
             elif status == "failed":
                 # Task failed
@@ -990,6 +1151,239 @@ class Asset3DGeneratorUI:
         """Clear the generation history."""
         self.generation_history.clear()
         return []
+    
+    def _get_latest_asset_info(self):
+        """Get information about the latest generated asset."""
+        try:
+            if not self.current_task_id:
+                return None, "No recent generation found", None, False, False
+            
+            # Get the completed task result
+            task_status = self.app.task_manager.get_task_status(self.current_task_id)
+            if not task_status or task_status.get("status") != "completed":
+                return None, "No completed generation found", None, False, False
+            
+            # Get the result data from the task
+            result_data = task_status.get("result")
+            if not result_data:
+                return None, "No result data available", None, False, False
+            
+            # Extract asset information
+            asset_name = result_data.get("asset_name", "Generated Asset")
+            model_url = result_data.get("model_url")
+            thumbnail_url = result_data.get("thumbnail_url")
+            
+            # Create metadata HTML
+            metadata_html = f'''
+            <div class="asset-metadata">
+                <h4>✨ {asset_name}</h4>
+                <div class="metadata-grid">
+                    <div><strong>Type:</strong> {result_data.get("asset_type", "Unknown")}</div>
+                    <div><strong>Quality:</strong> {result_data.get("quality_level", "Standard")}</div>
+                    <div><strong>Format:</strong> {result_data.get("file_format", "OBJ")}</div>
+                    <div><strong>Size:</strong> {result_data.get("file_size", "Unknown")} bytes</div>
+                    <div><strong>Polygons:</strong> {result_data.get("polygon_count", "Unknown")}</div>
+                    <div><strong>Generated:</strong> {result_data.get("timestamp", "Recently")}</div>
+                </div>
+                <div class="description">
+                    <strong>Description:</strong><br>
+                    <em>{result_data.get("original_description", "No description available")}</em>
+                </div>
+            </div>
+            '''
+            
+            return model_url, metadata_html, thumbnail_url, True, True
+            
+        except Exception as e:
+            logger.error(f"Error getting latest asset info: {e}")
+            return None, f"Error loading asset: {str(e)}", None, False, False
+
+    def _load_latest_asset(self):
+        """Load the latest generated asset into the Results tab."""
+        return self._get_latest_asset_info()
+    
+
+
+    def _display_selected_asset(self, asset_key):
+        """Display selected asset from the dropdown."""
+        try:
+            import json
+            import asyncio
+            
+            # Use the app's existing storage instance
+            storage = self.app.cloud_storage
+            if not storage:
+                error_html = '<div class="status-error">Cloud storage not configured.</div>'
+                return None, error_html, False, False
+            
+            if not asset_key:
+                return None, '<div class="no-asset">Please select an asset.</div>', False, False
+            
+            # Get file info
+            file_info = asyncio.run(storage.get_file_info(asset_key))
+            
+            # Extract model name from file path
+            model_name = asset_key.split("/")[-1].split(".")[0]
+            metadata_key = f"metadata/{model_name}.json"
+            
+            # Try to load metadata
+            try:
+                metadata_bytes = asyncio.run(storage.download_bytes(metadata_key))
+                metadata = json.loads(metadata_bytes.decode())
+            except Exception as e:
+                logger.warning(f"Could not load metadata for {model_name}: {e}")
+                metadata = {
+                    "name": model_name,
+                    "file_size": file_info.size,
+                    "last_modified": file_info.last_modified.strftime("%Y-%m-%d %H:%M:%S"),
+                    "content_type": file_info.content_type
+                }
+            
+            # For localhost/MinIO setups, we can't display 3D models directly in Gradio
+            # due to SSRF protection. Instead, we'll focus on metadata and download options.
+            model_url = None
+            
+            # Try to generate a public URL only if it's not localhost
+            if hasattr(storage, 'generate_public_url'):
+                try:
+                    public_url = asyncio.run(storage.generate_public_url(asset_key))
+                    logger.info(f"Generated public URL for {asset_key}: {public_url}")
+                    if public_url and 'localhost' not in public_url and public_url.startswith(('http://', 'https://')):
+                        model_url = public_url
+                    else:
+                        logger.info(f"Localhost URL detected, skipping 3D preview: {public_url}")
+                except Exception as e:
+                    logger.warning(f"Could not generate public URL: {e}")
+            
+            metadata_html = self._format_metadata_html(metadata)
+            
+            # If no valid model URL, add a note to metadata
+            if not model_url:
+                metadata_html += '''
+                <div class="status-info" style="margin-top: 1rem; padding: 1rem; background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px;">
+                    📁 <strong>File Information:</strong><br>
+                    • Asset is stored in cloud storage<br>
+                    • 3D preview not available (localhost storage)<br>
+                    • Use download button to access the file
+                </div>
+                '''
+            
+            # Track the current asset for downloads
+            self.current_asset_key = asset_key
+            
+            return model_url, metadata_html, True, True
+            
+        except Exception as e:
+            logger.error(f"Error displaying selected asset {asset_key}: {e}")
+            error_html = f'<div class="status-error">Error loading asset: {str(e)}</div>'
+            return None, error_html, False, False
+
+    def _format_metadata_html(self, metadata):
+        """Format metadata for display."""
+        if not metadata:
+            return '<div class="no-asset">No metadata found.</div>'
+            
+        html = '<div class="asset-metadata">'
+        
+        # Format specific fields with nice labels
+        field_labels = {
+            'name': 'Asset Name',
+            'description': 'Description',
+            'asset_type': 'Type',
+            'quality_level': 'Quality Level',
+            'file_format': 'Format',
+            'file_size': 'File Size',
+            'polygon_count': 'Polygon Count',
+            'content_type': 'Content Type',
+            'last_modified': 'Last Modified',
+            'generated_at': 'Generated At',
+            'generation_time': 'Generation Time',
+            'service': 'Service',
+            'cost': 'Cost'
+        }
+        
+        # Display known fields first
+        for key, label in field_labels.items():
+            if key in metadata:
+                value = metadata[key]
+                
+                # Format specific values
+                if key == 'file_size' and isinstance(value, (int, float)):
+                    from ..ui.utils import UIUtils
+                    value = UIUtils.format_file_size(int(value))
+                elif key == 'polygon_count' and isinstance(value, (int, float)):
+                    value = f"{int(value):,}"
+                elif key == 'cost' and isinstance(value, (int, float)):
+                    value = f"${float(value):.2f}"
+                elif key == 'generation_time' and isinstance(value, (int, float)):
+                    from ..ui.utils import UIUtils
+                    value = UIUtils.format_duration(float(value))
+                
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        # Display any remaining fields
+        for key, value in metadata.items():
+            if key not in field_labels:
+                label = key.replace('_', ' ').title()
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        html += '</div>'
+        return html
+
+    def _refresh_asset_list(self):
+        """Refresh the asset dropdown list."""
+        try:
+            import asyncio
+            
+            storage = self.app.cloud_storage
+            if not storage:
+                return []
+            
+            # List files in /assets prefix
+            files = asyncio.run(storage.list_files(prefix="assets/"))
+            if not files:
+                return []
+            
+            # Sort by last modified date, newest first
+            files_sorted = sorted(files, key=lambda x: x.last_modified, reverse=True)
+            
+            # Create dropdown choices with human-readable names
+            dropdown_choices = []
+            for f in files_sorted:
+                file_name = f.key.split("/")[-1]
+                display_name = f"{file_name} ({f.last_modified.strftime('%Y-%m-%d %H:%M')})"
+                dropdown_choices.append((display_name, f.key))
+            
+            return dropdown_choices
+            
+        except Exception as e:
+            logger.error(f"Error refreshing asset list: {e}")
+            return []
+    
+    def _download_selected_asset(self, asset_key):
+        """Download the selected asset file."""
+        try:
+            import asyncio
+            import tempfile
+            import os
+            
+            storage = self.app.cloud_storage
+            if not storage or not asset_key:
+                return None
+            
+            # Create a temporary file
+            file_name = asset_key.split("/")[-1]
+            temp_dir = tempfile.mkdtemp()
+            temp_file_path = os.path.join(temp_dir, file_name)
+            
+            # Download the file to temporary location
+            asyncio.run(storage.download_file(asset_key, temp_file_path))
+            
+            return temp_file_path
+            
+        except Exception as e:
+            logger.error(f"Error downloading asset {asset_key}: {e}")
+            return None
 
 
 def create_app_interface(app: AssetGenerationApp) -> gr.Blocks:
