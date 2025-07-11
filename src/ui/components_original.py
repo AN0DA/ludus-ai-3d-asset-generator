@@ -505,7 +505,7 @@ class UIComponents:
                 components["style"] = gr.Dropdown(
                     label="Art Style",
                     choices=[(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                    value=StylePreference.FANTASY.value,
+                    value=StylePreference.REALISTIC.value,
                     info="Choose the visual style",
                     elem_classes=["custom-input"]
                 )

@@ -36,17 +36,7 @@ class AssetType(str, Enum):
 class StylePreference(str, Enum):
     """Visual style preferences for asset generation."""
     REALISTIC = "realistic"
-    STYLIZED = "stylized"
-    CARTOON = "cartoon"
-    LOW_POLY = "low_poly"
-    HIGH_DETAIL = "high_detail"
-    MEDIEVAL = "medieval"
-    MODERN = "modern"
-    FUTURISTIC = "futuristic"
-    FANTASY = "fantasy"
-    SCI_FI = "sci_fi"
-    STEAMPUNK = "steampunk"
-    CYBERPUNK = "cyberpunk"
+    SCULPTURE = "sculpture"
 
 
 class GenerationStatus(str, Enum):
@@ -63,14 +53,10 @@ class GenerationStatus(str, Enum):
 
 
 class FileFormat(str, Enum):
-    """Supported 3D file formats."""
-    OBJ = "obj"
-    GLTF = "gltf"
+    """Supported 3D file formats for Meshy AI."""
     GLB = "glb"
     FBX = "fbx"
-    STL = "stl"
-    PLY = "ply"
-    DAE = "dae"
+    OBJ = "obj"
     USDZ = "usdz"
 
 
@@ -111,7 +97,7 @@ class AssetRequest(BaseModel):
         description="Desired quality level for generation"
     )
     preferred_formats: Annotated[List[FileFormat], Field(max_length=3)] = Field(
-        default_factory=lambda: [FileFormat.OBJ, FileFormat.GLTF],
+        default_factory=lambda: [FileFormat.GLB, FileFormat.OBJ],
         description="Preferred output file formats"
     )
     

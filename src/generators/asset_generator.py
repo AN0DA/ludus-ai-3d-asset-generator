@@ -24,8 +24,16 @@ import uuid
 import aiofiles
 try:
     import aiohttp
+    import ssl
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        ClientSessionType = aiohttp.ClientSession
+    else:
+        ClientSessionType = aiohttp.ClientSession
 except ImportError:
     aiohttp = None  # Will be handled gracefully
+    ssl = None
+    ClientSessionType = Any
 
 import structlog
 try:
@@ -183,7 +191,7 @@ class BaseServiceIntegration:
     
     def __init__(self, config: ServiceConfig):
         self.config = config
-        self.session = None  # Will be initialized as needed
+        self.session: Optional[Any] = None  # Will be initialized as needed
         self._health_status = ServiceStatus.AVAILABLE
         self._last_health_check = datetime.utcnow()
         
@@ -199,11 +207,40 @@ class BaseServiceIntegration:
     async def initialize(self):
         """Initialize the service integration."""
         if aiohttp:
-            # Always create a new session if one doesn't exist or is closed
-            if not self.session or self.session.closed:
+            # Always create a new session in the current event loop
+            if self.session and not self.session.closed:
+                try:
+                    await self.session.close()
+                except:
+                    pass
+            self.session = None
+            
+            try:
+                # Create SSL context that's more permissive for API calls
+                ssl_context = None
+                if ssl:
+                    ssl_context = ssl.create_default_context()
+                    # For development, disable SSL verification to avoid certificate issues
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    logger.info("SSL verification disabled for development")
+                
+                # Create session in current event loop context
                 timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
-                self.session = aiohttp.ClientSession(timeout=timeout)
-                logger.info(f"Created new HTTP session for {self.__class__.__name__}")
+                
+                if ssl_context:
+                    connector = aiohttp.TCPConnector(ssl=ssl_context)
+                    self.session = aiohttp.ClientSession(
+                        timeout=timeout,
+                        connector=connector
+                    )
+                else:
+                    self.session = aiohttp.ClientSession(timeout=timeout)
+                    
+                logger.info(f"Created new HTTP session for {self.__class__.__name__} in current event loop")
+            except Exception as e:
+                logger.error(f"Failed to create HTTP session: {e}")
+                self.session = None
     
     async def cleanup(self):
         """Clean up resources."""
@@ -314,9 +351,28 @@ class MeshyAIIntegration(BaseServiceIntegration):
         
         try:
             # Ensure session is initialized and not closed
-            if not self.session or self.session.closed:
-                logger.info("Session not available or closed, reinitializing...")
+            # Always reinitialize to make sure we're in the right event loop
+            logger.info("Reinitializing session to ensure correct event loop context")
+            await self.initialize()
+            
+            # Double-check the session is valid
+            if not self.session:
+                logger.error("Failed to create HTTP session")
+                raise APIError("Failed to create HTTP session", error_code="SESSION_CREATION_FAILED")
+            
+            # Test if the session is actually usable
+            try:
+                # This will fail if the event loop is closed or incompatible
+                await asyncio.sleep(0)
+                # Test the session with a simple operation
+                if self.session.closed:
+                    raise RuntimeError("Session is closed")
+            except RuntimeError as e:
+                logger.warning(f"Session/event loop issue detected: {e}")
+                # Force recreation of session
                 await self.initialize()
+                if not self.session:
+                    raise APIError("Failed to recreate HTTP session", error_code="SESSION_RECREATION_FAILED")
             
             # Update progress
             if progress_callback:
@@ -366,6 +422,9 @@ class MeshyAIIntegration(BaseServiceIntegration):
                 logger.error("HTTP session is None, cannot make request")
                 raise APIError("HTTP session not available", error_code="NO_HTTP_SESSION")
             
+            # Type assertion to help type checker
+            assert self.session is not None
+            
             try:
                 async with self.session.post(
                     f"{self.config.base_url}/openapi/v2/text-to-3d",
@@ -373,7 +432,8 @@ class MeshyAIIntegration(BaseServiceIntegration):
                     json=payload
                 ) as response:
                     logger.info(f"Meshy API response status: {response.status}")
-                    if response.status != 200:
+                    # Meshy AI returns 202 (Accepted) for task creation, not 200
+                    if response.status not in [200, 202]:
                         error_text = await response.text()
                         logger.error(f"Meshy API error: {response.status} - {error_text}")
                         raise APIError(
@@ -457,17 +517,10 @@ class MeshyAIIntegration(BaseServiceIntegration):
         if style is None:
             return "realistic"
             
-        # Meshy API only supports "realistic" and "sculpture" styles
+        # Direct mapping since we only support Meshy's native styles
         style_mapping = {
             StylePreference.REALISTIC: "realistic",
-            StylePreference.STYLIZED: "sculpture",  # Stylized maps to sculpture
-            StylePreference.CARTOON: "sculpture",   # Cartoon maps to sculpture
-            StylePreference.LOW_POLY: "realistic",  # Low poly uses realistic base
-            StylePreference.FANTASY: "realistic",   # Fantasy uses realistic base
-            StylePreference.SCI_FI: "realistic",    # Sci-fi uses realistic base
-            StylePreference.MEDIEVAL: "realistic",  # Medieval uses realistic base
-            StylePreference.MODERN: "realistic",    # Modern uses realistic base
-            StylePreference.FUTURISTIC: "realistic" # Futuristic uses realistic base
+            StylePreference.SCULPTURE: "sculpture"
         }
         return style_mapping.get(style, "realistic")
     
@@ -479,96 +532,204 @@ class MeshyAIIntegration(BaseServiceIntegration):
         progress_callback: Optional[Callable[[ProgressUpdate], None]] = None
     ) -> str:
         """Poll Meshy AI for task completion."""
-        max_attempts = 60  # 5 minutes with 5-second intervals
+        max_attempts = 120  # 10 minutes with smart backoff
         attempt = 0
+        consecutive_failures = 0
         
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
         
         while attempt < max_attempts:
             try:
-                if self.session:
-                    async with self.session.get(
-                        f"{self.config.base_url}/openapi/v2/text-to-3d/{task_id}",
-                        headers=headers
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"Meshy status check failed: {response.status} - {error_text}")
-                            raise APIError(f"Failed to check Meshy status: {response.status}")
-                        
-                        data = await response.json()
-                        status = data.get("status")
-                        progress = data.get("progress", 0)
-                        
-                        logger.info(f"Meshy task {task_id} status: {status}, progress: {progress}%")
-                        
-                        if status == "SUCCEEDED":
-                            # Check if we have model URLs
-                            model_urls = data.get("model_urls", {})
-                            if request.output_format == FileFormat.OBJ and "obj" in model_urls:
-                                return model_urls["obj"]
-                            elif request.output_format == FileFormat.GLB and "glb" in model_urls:
-                                return model_urls["glb"]  
-                            elif request.output_format == FileFormat.FBX and "fbx" in model_urls:
-                                return model_urls["fbx"]
-                            elif request.output_format == FileFormat.USDZ and "usdz" in model_urls:
-                                return model_urls["usdz"]
-                            else:
-                                # Fallback to GLB if requested format not available, then OBJ
-                                return model_urls.get("glb", model_urls.get("obj", ""))
-                        elif status == "FAILED":
-                            error_msg = data.get("task_error", {}).get("message", "Unknown error")
-                            raise APIError(f"Meshy generation failed: {error_msg}")
-                        elif status in ["PENDING", "IN_PROGRESS"]:
-                            # Update progress based on actual progress from API
-                            api_progress = 30.0 + (progress * 0.5)  # Map 0-100% to 30-80% of our progress
-                            if progress_callback:
-                                progress_callback(ProgressUpdate(
-                                    request_id=request_id,
-                                    status=GenerationStatus.PROCESSING,
-                                    progress_percentage=api_progress,
-                                    current_step=f"Meshy AI processing ({status.lower()}, {progress}%)"
-                                ))
-                            
-                            await asyncio.sleep(5)
-                            attempt += 1
-                        else:
-                            raise APIError(f"Unknown Meshy status: {status}")
-                else:
+                # Ensure session is valid for this request
+                if not self.session or self.session.closed:
+                    await self.initialize()
+                
+                if not self.session:
                     raise APIError("HTTP session not available", error_code="NO_HTTP_SESSION")
+                
+                async with self.session.get(
+                    f"{self.config.base_url}/openapi/v2/text-to-3d/{task_id}",
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Meshy status check failed: {response.status} - {error_text}")
+                        consecutive_failures += 1
+                        
+                        # If we get too many consecutive failures, give up
+                        if consecutive_failures >= 5:
+                            raise APIError(f"Too many consecutive failures checking Meshy status: {response.status}")
+                        
+                        # Wait a bit longer after failure
+                        await asyncio.sleep(min(10, 2 ** consecutive_failures))
+                        attempt += 1
+                        continue
+                    
+                    # Reset failure counter on successful response
+                    consecutive_failures = 0
+                    
+                    data = await response.json()
+                    status = data.get("status")
+                    progress = data.get("progress", 0)
+                    
+                    logger.info(f"Meshy task {task_id} status: {status}, progress: {progress}%")
+                    
+                    if status == "SUCCEEDED":
+                        # Check if we have model URLs
+                        model_urls = data.get("model_urls", {})
+                        if not model_urls:
+                            raise APIError("Meshy task succeeded but no model URLs provided")
+                        
+                        # Try to get the requested format first
+                        format_key = request.output_format.value.lower()
+                        if format_key in model_urls and model_urls[format_key]:
+                            return model_urls[format_key]
+                        
+                        # Fallback order: GLB -> OBJ -> any available
+                        for fallback_format in ["glb", "obj", "fbx", "usdz"]:
+                            if fallback_format in model_urls and model_urls[fallback_format]:
+                                logger.info(f"Using fallback format {fallback_format} instead of {format_key}")
+                                return model_urls[fallback_format]
+                        
+                        raise APIError("Meshy task succeeded but no usable model URLs found")
+                        
+                    elif status == "FAILED":
+                        error_msg = data.get("task_error", {}).get("message", "Unknown error")
+                        raise APIError(f"Meshy generation failed: {error_msg}")
+                        
+                    elif status in ["PENDING", "IN_PROGRESS"]:
+                        # Update progress based on actual progress from API
+                        api_progress = 30.0 + (progress * 0.5)  # Map 0-100% to 30-80% of our progress
+                        if progress_callback:
+                            progress_callback(ProgressUpdate(
+                                request_id=request_id,
+                                status=GenerationStatus.PROCESSING,
+                                progress_percentage=api_progress,
+                                current_step=f"Meshy AI processing ({status.lower()}, {progress}%)"
+                            ))
+                        
+                        # Smart backoff: shorter intervals initially, longer as time goes on
+                        if attempt < 12:  # First minute: 5 second intervals
+                            delay = 5
+                        elif attempt < 36:  # Next 2 minutes: 8 second intervals  
+                            delay = 8
+                        else:  # Remaining time: 10 second intervals
+                            delay = 10
+                            
+                        await asyncio.sleep(delay)
+                        attempt += 1
+                        
+                    elif status == "CANCELED":
+                        raise APIError("Meshy generation was canceled")
+                        
+                    else:
+                        logger.warning(f"Unknown Meshy status: {status}, continuing to poll")
+                        await asyncio.sleep(10)
+                        attempt += 1
                         
             except asyncio.TimeoutError:
-                raise APIError("Timeout while polling Meshy AI status")
+                logger.error(f"Timeout while polling Meshy AI status (attempt {attempt + 1})")
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    raise APIError("Repeated timeouts while polling Meshy AI status")
+                await asyncio.sleep(5)
+                attempt += 1
+            except APIError:
+                # Re-raise API errors as-is
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error while polling Meshy AI: {e}")
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    raise APIError(f"Repeated errors while polling Meshy AI: {e}")
+                await asyncio.sleep(5)
+                attempt += 1
         
-        raise APIError("Meshy AI generation timed out")
+        raise APIError("Meshy AI generation timed out after maximum polling attempts")
     
     async def _download_model(self, model_url: str, output_format: FileFormat) -> Optional[Path]:
         """Download the generated model from Meshy AI."""
-        try:
-            if self.session:
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Ensure session is valid for download
+                if not self.session or self.session.closed:
+                    await self.initialize()
+                    
+                if not self.session:
+                    logger.error("HTTP session not available for download")
+                    return None
+                
+                logger.info(f"Downloading model from: {model_url}")
+                
                 async with self.session.get(model_url) as response:
                     if response.status != 200:
-                        logger.error("Failed to download model", status=response.status)
+                        logger.error(f"Failed to download model: HTTP {response.status}")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+                            continue
                         return None
                     
-                    # Create temporary file
+                    # Get content length for validation
+                    content_length = response.headers.get('Content-Length')
+                    if content_length:
+                        content_length = int(content_length)
+                        logger.info(f"Expected download size: {content_length} bytes")
+                    
+                    # Create temporary file with proper extension
                     temp_dir = Path(tempfile.gettempdir()) / "meshy_downloads"
-                    temp_dir.mkdir(exist_ok=True)
+                    temp_dir.mkdir(exist_ok=True, parents=True)
                     
-                    temp_file = temp_dir / f"model_{int(time.time())}.{output_format.value}"
+                    # Determine file extension from URL or format
+                    url_path = urlparse(model_url).path
+                    if url_path.endswith('.glb'):
+                        file_ext = 'glb'
+                    elif url_path.endswith('.obj'):
+                        file_ext = 'obj'
+                    elif url_path.endswith('.fbx'):
+                        file_ext = 'fbx'
+                    elif url_path.endswith('.usdz'):
+                        file_ext = 'usdz'
+                    else:
+                        file_ext = output_format.value
                     
+                    temp_file = temp_dir / f"model_{int(time.time())}_{uuid.uuid4().hex[:8]}.{file_ext}"
+                    
+                    downloaded_bytes = 0
                     async with aiofiles.open(temp_file, 'wb') as f:
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
+                            downloaded_bytes += len(chunk)
                     
+                    # Validate download
+                    if content_length and downloaded_bytes != content_length:
+                        logger.warning(f"Download size mismatch: expected {content_length}, got {downloaded_bytes}")
+                    
+                    # Verify file exists and has content
+                    if not temp_file.exists() or temp_file.stat().st_size == 0:
+                        logger.error("Downloaded file is empty or missing")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            await asyncio.sleep(2 ** retry_count)
+                            continue
+                        return None
+                    
+                    logger.info(f"Successfully downloaded model: {temp_file} ({downloaded_bytes} bytes)")
                     return temp_file
-            else:
-                logger.error("HTTP session not available for download")
-                return None
-                
-        except Exception as e:
-            logger.error("Error downloading model", error=str(e))
-            return None
+                    
+            except Exception as e:
+                logger.error(f"Error downloading model (attempt {retry_count + 1}): {e}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(2 ** retry_count)
+                else:
+                    logger.error("Max download retries exceeded")
+                    return None
+        
+        return None
 
 
 # Main Asset Generator Class

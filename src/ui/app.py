@@ -371,7 +371,7 @@ class Asset3DGeneratorUI:
                         style = gr.Dropdown(
                             label="Art Style",
                             choices=[(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                            value=StylePreference.FANTASY.value,
+                            value=StylePreference.REALISTIC.value,
                             elem_classes=["form-input"],
                             info="Choose the visual style"
                         )

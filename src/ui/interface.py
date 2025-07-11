@@ -60,7 +60,7 @@ class AssetGeneratorInterface:
                 cost_per_generation=0.50,
                 supports_text_to_3d=True,
                 supports_image_to_3d=False,
-                supported_output_formats=[FileFormat.OBJ, FileFormat.GLTF, FileFormat.GLB],
+                supported_output_formats=[FileFormat.GLB, FileFormat.FBX, FileFormat.OBJ, FileFormat.USDZ],
                 quality_levels=[QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
             ),
             ServiceProvider.KAEDIM: ServiceConfig(

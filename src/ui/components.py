@@ -132,7 +132,7 @@ class UIComponents:
                 components["style"] = gr.Dropdown(
                     label="Art Style",
                     choices=[(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                    value=StylePreference.FANTASY.value
+                    value=StylePreference.REALISTIC.value
                 )
             
             with gr.Row():

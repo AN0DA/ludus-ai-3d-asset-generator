@@ -22,11 +22,10 @@ class ModelPreview:
     """3D model preview and visualization handler."""
     
     SUPPORTED_3D_FORMATS = {
-        FileFormat.OBJ, FileFormat.GLTF, FileFormat.GLB, 
-        FileFormat.FBX, FileFormat.STL, FileFormat.PLY
+        FileFormat.GLB, FileFormat.FBX, FileFormat.OBJ, FileFormat.USDZ
     }
     
-    FALLBACK_FORMATS = {FileFormat.DAE}
+    FALLBACK_FORMATS = {FileFormat.OBJ}
     
     @staticmethod
     def create_model_viewer(

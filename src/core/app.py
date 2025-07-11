@@ -184,13 +184,9 @@ class AssetGenerationApp:
     def _get_content_type_for_format(self, file_format: FileFormat) -> str:
         """Get MIME content type for a file format."""
         content_type_map = {
-            FileFormat.OBJ: "model/obj",
-            FileFormat.FBX: "application/octet-stream",
             FileFormat.GLB: "model/gltf-binary",
-            FileFormat.GLTF: "model/gltf+json",
-            FileFormat.PLY: "application/octet-stream",
-            FileFormat.STL: "model/stl",
-            FileFormat.DAE: "model/vnd.collada+xml",
+            FileFormat.FBX: "application/octet-stream",
+            FileFormat.OBJ: "model/obj",
             FileFormat.USDZ: "model/usd"
         }
         return content_type_map.get(file_format, "application/octet-stream")
@@ -323,6 +319,9 @@ class AssetGenerationApp:
             # Step 2: Generate 3D asset
             update_progress("asset_generation", 0.35, "Generating 3D model")
             
+            # Prepare description for 3D generation - truncate if needed for service limits
+            generation_description = enhanced_description["enhanced_description"]
+            
             model_file_path = None
             if self.asset_generator:
                 try:
@@ -332,9 +331,37 @@ class AssetGenerationApp:
                         overall_progress = 0.35 + (progress_update.progress_percentage * 0.30 / 100.0)
                         update_progress("asset_generation", overall_progress, progress_update.message or progress_update.current_step)
                     
+                    # Meshy AI has a 600 character limit - truncate smartly if needed
+                    if len(generation_description) > 590:  # Leave some margin
+                        # Try to truncate at sentence boundary
+                        sentences = generation_description.split('. ')
+                        truncated_description = ""
+                        for sentence in sentences:
+                            if len(truncated_description + sentence + '. ') <= 590:
+                                truncated_description += sentence + '. '
+                            else:
+                                break
+                        
+                        # If no complete sentences fit, just truncate at word boundary
+                        if not truncated_description.strip():
+                            words = generation_description.split()
+                            truncated_description = ""
+                            for word in words:
+                                if len(truncated_description + word + ' ') <= 590:
+                                    truncated_description += word + ' '
+                                else:
+                                    break
+                        
+                        # Fallback to hard truncation if needed
+                        if len(truncated_description) > 590:
+                            truncated_description = truncated_description[:587] + "..."
+                        
+                        generation_description = truncated_description.strip()
+                        logger.info(f"Truncated description from {len(enhanced_description['enhanced_description'])} to {len(generation_description)} characters")
+                    
                     # Create generation request
                     generation_request = GenerationRequest(
-                        description=enhanced_description["enhanced_description"],
+                        description=generation_description,
                         asset_type=asset_type,
                         style_preference=style_preference,
                         quality_level=quality_level,
@@ -437,6 +464,7 @@ class AssetGenerationApp:
                     metadata_content = {
                         "original_description": description,
                         "enhanced_description": enhanced_description,
+                        "generation_description": generation_description,
                         "generation_request": {
                             "description": description,
                             "asset_type": asset_type.value,
@@ -517,6 +545,7 @@ class AssetGenerationApp:
                     "model_url": model_url, 
                     "metadata_url": metadata_url,
                     "enhanced_description": enhanced_description,
+                    "generation_description": generation_description,
                     "generation_result": generation_result,
                     "model_file_path": model_file_path
                 }
