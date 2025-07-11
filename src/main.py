@@ -14,10 +14,7 @@ from pathlib import Path
 import structlog
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 # Configure structured logging
 structlog.configure(
@@ -30,7 +27,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
@@ -58,7 +55,7 @@ except ImportError as e:
 async def initialize_app() -> AssetGenerationApp:
     """Initialize the application."""
     logger.info("Initializing AI 3D Asset Generator application")
-    
+
     try:
         app = AssetGenerationApp()
         await app.initialize()
@@ -70,25 +67,25 @@ async def initialize_app() -> AssetGenerationApp:
 
 
 def main():
-    """Main entry point for the application."""   
+    """Main entry point for the application."""
     try:
         # Get configuration settings
         settings = get_settings()
-        
+
         # Initialize the application
         app = asyncio.run(initialize_app())
-        
+
         interface = create_app_interface(app)
-        
+
         interface.launch(
             server_name=settings.gradio_host,
             server_port=settings.gradio_port,
             share=settings.gradio_share,
             debug=settings.gradio_debug,
             show_error=settings.gradio_show_error,
-            quiet=False
+            quiet=False,
         )
-        
+
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
     except Exception as e:

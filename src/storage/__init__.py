@@ -33,15 +33,15 @@ def create_storage(
     access_key_id: str,
     secret_access_key: str,
     region: str = "us-east-1",
-    endpoint_url: Optional[str] = None,
-    **kwargs
+    endpoint_url: str | None = None,
+    **kwargs,
 ) -> S3Storage:
     """
     Create an S3-compatible storage instance with simplified configuration.
-    
+
     This factory function makes it easy to create storage instances for any
     S3-compatible service by just providing the essential parameters.
-    
+
     Args:
         bucket_name: Name of the storage bucket
         access_key_id: Access key ID for authentication
@@ -49,10 +49,10 @@ def create_storage(
         region: Storage region (default: us-east-1)
         endpoint_url: Custom endpoint URL for non-AWS services (optional)
         **kwargs: Additional configuration options
-    
+
     Returns:
         Configured S3Storage instance
-    
+
     Examples:
         # AWS S3
         storage = create_storage(
@@ -61,7 +61,7 @@ def create_storage(
             secret_access_key="...",
             region="us-west-2"
         )
-        
+
         # MinIO
         storage = create_storage(
             bucket_name="my-bucket",
@@ -69,7 +69,7 @@ def create_storage(
             secret_access_key="minioadmin",
             endpoint_url="http://localhost:9000"
         )
-        
+
         # CloudFlare R2
         storage = create_storage(
             bucket_name="my-bucket",
@@ -85,9 +85,9 @@ def create_storage(
         secret_access_key=secret_access_key,
         region=region,
         endpoint_url=endpoint_url,
-        **kwargs
+        **kwargs,
     )
-    
+
     return S3Storage(config)
 
 
@@ -95,20 +95,16 @@ __all__ = [
     # Abstract interfaces and base classes
     "CloudStorage",
     "StorageConfig",
-    
     # Concrete implementations
     "S3Storage",
-    
     # Factory functions
     "create_storage",
-    
     # Data models and enums
     "FileInfo",
     "UploadProgress",
     "StorageProvider",
     "FileType",
     "StoragePermission",
-    
     # Exceptions
     "StorageError",
     "FileNotFoundError",
@@ -116,7 +112,6 @@ __all__ = [
     "QuotaExceededError",
     "NetworkError",
     "ValidationError",
-    
     # Utilities
     "FileUtils",
     "file_utils",
