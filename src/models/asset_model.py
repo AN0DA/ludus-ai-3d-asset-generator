@@ -71,6 +71,7 @@ class FileFormat(str, Enum):
     STL = "stl"
     PLY = "ply"
     DAE = "dae"
+    USDZ = "usdz"
 
 
 class QualityLevel(str, Enum):

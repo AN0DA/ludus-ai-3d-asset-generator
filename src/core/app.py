@@ -148,14 +148,11 @@ class AssetGenerationApp:
             configs[ServiceProvider.MESHY_AI] = ServiceConfig(
                 api_key=meshy_key,
                 base_url="https://api.meshy.ai",
-                max_requests_per_minute=10,
-                max_requests_per_day=100,
                 timeout_seconds=600,
-                cost_per_generation=0.50,
                 supports_text_to_3d=True,
                 supports_image_to_3d=True,
-                supported_output_formats=[FileFormat.OBJ, FileFormat.GLTF, FileFormat.GLB],
-                quality_levels=[QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
+                supported_output_formats=[FileFormat.GLB, FileFormat.FBX, FileFormat.OBJ, FileFormat.USDZ],
+                quality_levels=[QualityLevel.DRAFT, QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
             )
             logger.info("Meshy service config created with full capabilities")
         
@@ -193,7 +190,8 @@ class AssetGenerationApp:
             FileFormat.GLTF: "model/gltf+json",
             FileFormat.PLY: "application/octet-stream",
             FileFormat.STL: "model/stl",
-            FileFormat.DAE: "model/vnd.collada+xml"
+            FileFormat.DAE: "model/vnd.collada+xml",
+            FileFormat.USDZ: "model/usd"
         }
         return content_type_map.get(file_format, "application/octet-stream")
     

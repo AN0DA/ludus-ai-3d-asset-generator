@@ -3,7 +3,7 @@ Comprehensive 3D asset generation module with multiple service integrations.
 
 This module provides the Asset3DGenerator class that supports multiple 3D generation
 services, async workflows, error handling, retry logic, and result processing.
-Includes integrations for Meshy AI, Kaedim API, and image-to-3D pipelines.
+Includes integrations for Meshy AI.
 """
 
 import asyncio
@@ -60,17 +60,12 @@ logger = structlog.get_logger(__name__)
 class ServiceProvider(str, Enum):
     """Available 3D generation service providers."""
     MESHY_AI = "meshy_ai"
-    KAEDIM = "kaedim"
-    TRIPO3D = "tripo3d"
-    LUMA_AI = "luma_ai"
-    OPENAI_DALLE = "openai_dalle"  # For image generation in image-to-3D pipeline
 
 
 class ServiceStatus(str, Enum):
     """Service availability status."""
     AVAILABLE = "available"
     UNAVAILABLE = "unavailable"
-    RATE_LIMITED = "rate_limited"
     MAINTENANCE = "maintenance"
     DEGRADED = "degraded"
 
@@ -89,49 +84,14 @@ class ServiceConfig:
     """Configuration for a 3D generation service."""
     api_key: str
     base_url: str
-    max_requests_per_minute: int = 10
-    max_requests_per_day: int = 1000
     timeout_seconds: int = 300
     retry_attempts: int = 3
     retry_delay_seconds: float = 1.0
-    cost_per_generation: float = 0.0
     supports_text_to_3d: bool = True
     supports_image_to_3d: bool = False
     supported_output_formats: List[FileFormat] = field(default_factory=lambda: [FileFormat.OBJ])
-    max_polygon_count: int = 50000
+    max_polygon_count: int = 300000  # Meshy AI supports up to 300,000 polygons
     quality_levels: List[QualityLevel] = field(default_factory=lambda: [QualityLevel.STANDARD])
-
-
-@dataclass
-class RateLimitInfo:
-    """Rate limiting information for a service."""
-    requests_per_minute: int = 0
-    requests_per_day: int = 0
-    last_reset_minute: datetime = field(default_factory=datetime.utcnow)
-    last_reset_day: datetime = field(default_factory=datetime.utcnow)
-    
-    def can_make_request(self, config: ServiceConfig) -> bool:
-        """Check if a request can be made without exceeding rate limits."""
-        now = datetime.utcnow()
-        
-        # Reset counters if needed
-        if now - self.last_reset_minute >= timedelta(minutes=1):
-            self.requests_per_minute = 0
-            self.last_reset_minute = now
-        
-        if now - self.last_reset_day >= timedelta(days=1):
-            self.requests_per_day = 0
-            self.last_reset_day = now
-        
-        return (
-            self.requests_per_minute < config.max_requests_per_minute and
-            self.requests_per_day < config.max_requests_per_day
-        )
-    
-    def record_request(self) -> None:
-        """Record that a request was made."""
-        self.requests_per_minute += 1
-        self.requests_per_day += 1
 
 
 # Request and Response Models
@@ -151,7 +111,7 @@ class GenerationRequest(BaseModel):
     reference_image_path: Optional[str] = None
     
     # Generation parameters
-    max_polygon_count: Optional[int] = Field(None, ge=1000, le=100000)
+    max_polygon_count: Optional[int] = Field(None, ge=100, le=300000)
     generation_method: GenerationMethod = GenerationMethod.TEXT_TO_3D
     preferred_service: Optional[ServiceProvider] = None
     
@@ -192,10 +152,6 @@ class GenerationResult(BaseModel):
     polygon_count: Optional[int] = None
     generation_time_seconds: Optional[float] = None
     
-    # Cost and usage
-    cost_usd: Optional[float] = None
-    service_request_id: Optional[str] = None
-    
     # Timing
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
@@ -227,7 +183,6 @@ class BaseServiceIntegration:
     
     def __init__(self, config: ServiceConfig):
         self.config = config
-        self.rate_limit_info = RateLimitInfo()
         self.session = None  # Will be initialized as needed
         self._health_status = ServiceStatus.AVAILABLE
         self._last_health_check = datetime.utcnow()
@@ -292,11 +247,6 @@ class BaseServiceIntegration:
                    output_format=request.output_format,
                    quality_level=request.quality_level)
         
-        # Check rate limits
-        if not self.rate_limit_info.can_make_request(self.config):
-            logger.info("Service rejected: rate limit exceeded")
-            return False
-        
         # Check service capabilities
         if request.generation_method == GenerationMethod.TEXT_TO_3D:
             if not self.config.supports_text_to_3d:
@@ -329,20 +279,6 @@ class BaseServiceIntegration:
     ) -> GenerationResult:
         """Generate 3D asset - to be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement generate_3d_asset")
-    
-    def estimate_cost(self, request: GenerationRequest) -> float:
-        """Estimate the cost for generating this asset."""
-        base_cost = self.config.cost_per_generation
-        
-        # Adjust cost based on quality level
-        quality_multiplier = {
-            QualityLevel.DRAFT: 0.5,
-            QualityLevel.STANDARD: 1.0,
-            QualityLevel.HIGH: 2.0,
-            QualityLevel.ULTRA: 4.0
-        }.get(request.quality_level, 1.0)
-        
-        return base_cost * quality_multiplier
 
 
 class MeshyAIIntegration(BaseServiceIntegration):
@@ -391,11 +327,8 @@ class MeshyAIIntegration(BaseServiceIntegration):
                     current_step="Initializing Meshy AI request"
                 ))
             
-            # Record rate limit usage
-            self.rate_limit_info.record_request()
-            
             # Prepare request payload for Meshy API v2
-            payload = {
+            payload: Dict[str, Any] = {
                 "mode": "preview",  # Start with preview mode
                 "prompt": request.description,
                 "art_style": self._map_style_to_meshy(request.style_preference),
@@ -403,20 +336,20 @@ class MeshyAIIntegration(BaseServiceIntegration):
             
             # Add optional parameters based on quality level
             if request.quality_level == QualityLevel.DRAFT:
-                payload["target_polycount"] = 15000  # Lower polygon count for draft
+                payload["target_polycount"] = 1000  # Lower polygon count for draft
             elif request.quality_level == QualityLevel.STANDARD:
-                payload["target_polycount"] = 30000
+                payload["target_polycount"] = 5000
             elif request.quality_level == QualityLevel.HIGH:
-                payload["target_polycount"] = 60000
+                payload["target_polycount"] = 50000
                 payload["topology"] = "quad"
             elif request.quality_level == QualityLevel.ULTRA:
                 payload["target_polycount"] = 100000
                 payload["topology"] = "quad"
                 payload["ai_model"] = "meshy-5"  # Use newer model for ultra quality
             
-            # Add polygon count if specified
+            # Add polygon count if specified (Meshy supports 100-300,000)
             if request.max_polygon_count:
-                payload["target_polycount"] = min(request.max_polygon_count, 300000)
+                payload["target_polycount"] = min(max(request.max_polygon_count, 100), 300000)
             
             logger.info(f"Meshy payload: {payload}")
             
@@ -495,8 +428,6 @@ class MeshyAIIntegration(BaseServiceIntegration):
                 file_format=request.output_format,
                 file_size_bytes=file_size,
                 generation_time_seconds=generation_time,
-                cost_usd=self.estimate_cost(request),
-                service_request_id=task_id,
                 completed_at=datetime.utcnow()
             )
             
@@ -578,10 +509,12 @@ class MeshyAIIntegration(BaseServiceIntegration):
                                 return model_urls["obj"]
                             elif request.output_format == FileFormat.GLB and "glb" in model_urls:
                                 return model_urls["glb"]  
-                            elif request.output_format == FileFormat.GLTF and "gltf" in model_urls:
-                                return model_urls["gltf"]
+                            elif request.output_format == FileFormat.FBX and "fbx" in model_urls:
+                                return model_urls["fbx"]
+                            elif request.output_format == FileFormat.USDZ and "usdz" in model_urls:
+                                return model_urls["usdz"]
                             else:
-                                # Fallback to GLB if requested format not available
+                                # Fallback to GLB if requested format not available, then OBJ
                                 return model_urls.get("glb", model_urls.get("obj", ""))
                         elif status == "FAILED":
                             error_msg = data.get("task_error", {}).get("message", "Unknown error")
@@ -638,188 +571,25 @@ class MeshyAIIntegration(BaseServiceIntegration):
             return None
 
 
-class KaedimIntegration(BaseServiceIntegration):
-    """Kaedim API service integration."""
-    
-    async def generate_3d_asset(
-        self, 
-        request: GenerationRequest,
-        progress_callback: Optional[Callable[[ProgressUpdate], None]] = None
-    ) -> GenerationResult:
-        """Generate 3D asset using Kaedim API."""
-        request_id = str(uuid.uuid4())
-        start_time = time.time()
-        
-        logger.info("Starting Kaedim generation", 
-                   request_id=request_id, 
-                   description=request.description)
-        
-        try:
-            # For Kaedim, we need to first generate an image if using text-to-3D
-            image_path = None
-            if request.generation_method == GenerationMethod.TEXT_TO_3D:
-                if progress_callback:
-                    progress_callback(ProgressUpdate(
-                        request_id=request_id,
-                        status=GenerationStatus.PROCESSING,
-                        progress_percentage=20.0,
-                        current_step="Generating reference image"
-                    ))
-                
-                # Generate image using DALL-E or similar
-                image_path = await self._generate_reference_image(request.description)
-            else:
-                image_path = request.reference_image_path
-            
-            if not image_path:
-                raise APIError("No reference image available for Kaedim generation")
-            
-            # Record rate limit usage
-            self.rate_limit_info.record_request()
-            
-            # Upload image to Kaedim
-            if progress_callback:
-                progress_callback(ProgressUpdate(
-                    request_id=request_id,
-                    status=GenerationStatus.PROCESSING,
-                    progress_percentage=40.0,
-                    current_step="Uploading image to Kaedim"
-                ))
-            
-            kaedim_job_id = await self._upload_to_kaedim(image_path, request)
-            
-            # Poll for completion
-            if progress_callback:
-                progress_callback(ProgressUpdate(
-                    request_id=request_id,
-                    status=GenerationStatus.PROCESSING,
-                    progress_percentage=60.0,
-                    current_step="Kaedim processing 3D model"
-                ))
-            
-            model_url = await self._poll_kaedim_completion(
-                kaedim_job_id, request_id, progress_callback
-            )
-            
-            # Download result
-            model_path = await self._download_model(model_url, request.output_format)
-            file_size = os.path.getsize(model_path) if model_path else 0
-            
-            generation_time = time.time() - start_time
-            
-            result = GenerationResult(
-                request_id=request_id,
-                status=GenerationStatus.COMPLETED,
-                service_used=ServiceProvider.KAEDIM,
-                generation_method=request.generation_method,
-                model_url=model_url,
-                model_file_path=str(model_path) if model_path else None,
-                file_format=request.output_format,
-                file_size_bytes=file_size,
-                generation_time_seconds=generation_time,
-                cost_usd=self.estimate_cost(request),
-                service_request_id=kaedim_job_id,
-                completed_at=datetime.utcnow()
-            )
-            
-            logger.info("Kaedim generation completed", 
-                       request_id=request_id,
-                       generation_time=generation_time)
-            
-            return result
-            
-        except Exception as e:
-            logger.error("Kaedim generation failed", 
-                        request_id=request_id, 
-                        error=str(e))
-            
-            return GenerationResult(
-                request_id=request_id,
-                status=GenerationStatus.FAILED,
-                service_used=ServiceProvider.KAEDIM,
-                generation_method=request.generation_method,
-                error_message=str(e),
-                error_code=getattr(e, 'error_code', 'UNKNOWN_ERROR'),
-                generation_time_seconds=time.time() - start_time
-            )
-    
-    async def _generate_reference_image(self, description: str) -> Optional[str]:
-        """Generate a reference image using DALL-E for Kaedim."""
-        # This would integrate with DALL-E or another image generation service
-        # For now, return None as placeholder
-        logger.info("Would generate reference image for Kaedim", description=description)
-        return None
-    
-    async def _upload_to_kaedim(self, image_path: str, request: GenerationRequest) -> str:
-        """Upload image to Kaedim and start 3D generation."""
-        # Placeholder implementation
-        logger.info("Would upload to Kaedim", image_path=image_path)
-        return f"kaedim_job_{int(time.time())}"
-    
-    async def _poll_kaedim_completion(
-        self, 
-        job_id: str, 
-        request_id: str,
-        progress_callback: Optional[Callable[[ProgressUpdate], None]] = None
-    ) -> str:
-        """Poll Kaedim for job completion."""
-        # Placeholder implementation
-        logger.info("Would poll Kaedim completion", job_id=job_id)
-        await asyncio.sleep(2)  # Simulate processing time
-        return f"https://example.com/model_{job_id}.obj"
-    
-    async def _download_model(self, model_url: str, output_format: FileFormat) -> Optional[Path]:
-        """Download the generated model from Kaedim."""
-        try:
-            if self.session:
-                async with self.session.get(model_url) as response:
-                    if response.status != 200:
-                        logger.error("Failed to download model from Kaedim", status=response.status)
-                        return None
-                    
-                    # Create temporary file
-                    temp_dir = Path(tempfile.gettempdir()) / "kaedim_downloads"
-                    temp_dir.mkdir(exist_ok=True)
-                    
-                    temp_file = temp_dir / f"model_{int(time.time())}.{output_format.value}"
-                    
-                    async with aiofiles.open(temp_file, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-                    
-                    return temp_file
-            else:
-                logger.error("HTTP session not available for Kaedim download")
-                return None
-                
-        except Exception as e:
-            logger.error("Error downloading model from Kaedim", error=str(e))
-            return None
-
-
 # Main Asset Generator Class
 
 class Asset3DGenerator:
     """
     Main 3D asset generator with multiple service integrations.
     
-    Supports multiple services with automatic fallback, rate limiting,
-    cost tracking, and comprehensive error handling.
+    Supports multiple services with automatic fallback and comprehensive error handling.
     """
     
     def __init__(self, configs: Dict[ServiceProvider, ServiceConfig]):
         """Initialize the asset generator with service configurations."""
         self.configs = configs
         self.services: Dict[ServiceProvider, BaseServiceIntegration] = {}
-        self.total_cost_tracking = 0.0
         self.generation_history: List[GenerationResult] = []
         
         # Initialize service integrations
         for provider, config in configs.items():
             if provider == ServiceProvider.MESHY_AI:
                 self.services[provider] = MeshyAIIntegration(config)
-            elif provider == ServiceProvider.KAEDIM:
-                self.services[provider] = KaedimIntegration(config)
             # Add other services as needed
     
     async def __aenter__(self):
@@ -899,9 +669,7 @@ class Asset3DGenerator:
                     # Post-process the result
                     result = await self._post_process_result(result, request)
                     
-                    # Track cost and history
-                    if result.cost_usd:
-                        self.total_cost_tracking += result.cost_usd
+                    # Track history
                     self.generation_history.append(result)
                     
                     logger.info("Asset generation completed successfully",
@@ -961,12 +729,21 @@ class Asset3DGenerator:
                     code="MISSING_REFERENCE_IMAGE"
                 )
         
-        if request.max_polygon_count and request.max_polygon_count > 100000:
+        # Validate prompt length for Meshy API (600 character limit)
+        if len(request.description) > 600:
             raise ValidationException(
-                "Maximum polygon count exceeds limit (100,000)",
-                field="max_polygon_count",
-                code="POLYGON_COUNT_TOO_HIGH"
+                "Description must be 600 characters or less for Meshy AI",
+                field="description", 
+                code="DESCRIPTION_TOO_LONG"
             )
+        
+        if request.max_polygon_count:
+            if request.max_polygon_count < 100 or request.max_polygon_count > 300000:
+                raise ValidationException(
+                    "Maximum polygon count must be between 100 and 300,000 (Meshy API limits)",
+                    field="max_polygon_count",
+                    code="POLYGON_COUNT_OUT_OF_RANGE"
+                )
     
     async def _select_service(
         self, 
@@ -996,7 +773,6 @@ class Asset3DGenerator:
             
             # Calculate score based on:
             # - Service health
-            # - Cost
             # - Capabilities match
             # - Historical success rate
             
@@ -1013,16 +789,9 @@ class Asset3DGenerator:
                 logger.warning(f"Service {provider} marked as unavailable, skipping")
                 continue  # Skip unavailable services
             
-            # Cost factor (lower cost = higher score)
-            cost = service.estimate_cost(request)
-            if cost > 0:
-                score += max(0, 50 - cost * 10)  # Adjust scaling as needed
-            
             # Capability match
             if provider == ServiceProvider.MESHY_AI and request.generation_method == GenerationMethod.TEXT_TO_3D:
                 score += 20  # Meshy AI is good for text-to-3D
-            elif provider == ServiceProvider.KAEDIM and request.generation_method == GenerationMethod.IMAGE_TO_3D:
-                score += 20  # Kaedim is good for image-to-3D
             
             service_scores.append((score, service, provider))
         
@@ -1155,38 +924,6 @@ class Asset3DGenerator:
             provider: service._health_status 
             for provider, service in self.services.items()
         }
-    
-    def get_cost_tracking(self) -> Dict[str, Any]:
-        """Get cost tracking information."""
-        service_costs = {}
-        for result in self.generation_history:
-            if result.cost_usd:
-                service = result.service_used
-                if service not in service_costs:
-                    service_costs[service] = {"total": 0.0, "count": 0}
-                service_costs[service]["total"] += result.cost_usd
-                service_costs[service]["count"] += 1
-        
-        return {
-            "total_cost_usd": self.total_cost_tracking,
-            "service_breakdown": service_costs,
-            "total_generations": len(self.generation_history),
-            "successful_generations": len([
-                r for r in self.generation_history 
-                if r.status == GenerationStatus.COMPLETED
-            ])
-        }
-    
-    def get_rate_limit_status(self) -> Dict[ServiceProvider, Dict[str, Any]]:
-        """Get rate limit status for all services."""
-        return {
-            provider: {
-                "requests_per_minute": service.rate_limit_info.requests_per_minute,
-                "requests_per_day": service.rate_limit_info.requests_per_day,
-                "can_make_request": service.rate_limit_info.can_make_request(service.config)
-            }
-            for provider, service in self.services.items()
-        }
 
 
 # Utility Functions
@@ -1197,26 +934,11 @@ def create_default_configs() -> Dict[ServiceProvider, ServiceConfig]:
         ServiceProvider.MESHY_AI: ServiceConfig(
             api_key=os.getenv("MESHY_API_KEY", ""),
             base_url="https://api.meshy.ai",
-            max_requests_per_minute=10,
-            max_requests_per_day=100,
             timeout_seconds=600,
-            cost_per_generation=0.50,
             supports_text_to_3d=True,
             supports_image_to_3d=True,
-            supported_output_formats=[FileFormat.OBJ, FileFormat.GLTF, FileFormat.GLB],
+            supported_output_formats=[FileFormat.GLB, FileFormat.FBX, FileFormat.OBJ, FileFormat.USDZ],
             quality_levels=[QualityLevel.DRAFT, QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
-        ),
-        ServiceProvider.KAEDIM: ServiceConfig(
-            api_key=os.getenv("KAEDIM_API_KEY", ""),
-            base_url="https://api.kaedim3d.com",
-            max_requests_per_minute=5,
-            max_requests_per_day=50,
-            timeout_seconds=900,
-            cost_per_generation=2.00,
-            supports_text_to_3d=False,
-            supports_image_to_3d=True,
-            supported_output_formats=[FileFormat.OBJ, FileFormat.FBX],
-            quality_levels=[QualityLevel.HIGH, QualityLevel.ULTRA]
         )
     }
 
