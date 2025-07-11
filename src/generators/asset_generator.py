@@ -217,24 +217,24 @@ class BaseServiceIntegration:
             
             try:
                 # Create SSL context that's more permissive for API calls
-                ssl_context = None
-                if ssl:
-                    ssl_context = ssl.create_default_context()
-                    # For development, disable SSL verification to avoid certificate issues
-                    ssl_context.check_hostname = False
-                    ssl_context.verify_mode = ssl.CERT_NONE
-                    logger.info("SSL verification disabled for development")
-                
                 # Create session in current event loop context
                 timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
                 
-                if ssl_context:
+                if ssl:
+                    # Create SSL context and disable verification for development
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    logger.info("SSL verification disabled for development")
+                    
                     connector = aiohttp.TCPConnector(ssl=ssl_context)
                     self.session = aiohttp.ClientSession(
                         timeout=timeout,
                         connector=connector
                     )
                 else:
+                    # Fallback if ssl module is not available - use default session
+                    logger.warning("SSL module not available, using default session")
                     self.session = aiohttp.ClientSession(timeout=timeout)
                     
                 logger.info(f"Created new HTTP session for {self.__class__.__name__} in current event loop")

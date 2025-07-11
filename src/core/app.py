@@ -460,11 +460,12 @@ class AssetGenerationApp:
                     # Upload the generated model file
                     model_key = f"assets/{filename}.{generation_result['file_format'].value.lower()}"
                     
-                    def upload_progress_callback(bytes_transferred: int, total_bytes: int):
-                        progress_pct = bytes_transferred / total_bytes if total_bytes > 0 else 0
+                    def upload_progress_callback(progress):
+                        # progress is an UploadProgress object with bytes_uploaded, total_bytes, percentage
+                        progress_pct = progress.percentage / 100.0 if progress.percentage else 0
                         # Map upload progress to 75% to 85% overall progress
                         overall_progress = 0.75 + (progress_pct * 0.10)
-                        update_progress("cloud_upload", overall_progress, f"Uploading model file ({int(progress_pct * 100)}%)")
+                        update_progress("cloud_upload", overall_progress, f"Uploading model file ({int(progress.percentage)}%)")
                     
                     model_info = await self.cloud_storage.upload_file(
                         file_path=model_file_path,
