@@ -108,9 +108,12 @@ class AssetGenerationApp:
                 storage_config = self._create_storage_config()
                 if storage_config.access_key_id and storage_config.secret_access_key:
                     self.cloud_storage = S3Storage(storage_config)
-                    logger.info("Cloud storage initialized successfully")
+                    # IMPORTANT: Call connect() to initialize the S3 client
+                    await self.cloud_storage.connect()
+                    logger.info("Cloud storage initialized and connected successfully")
                 else:
                     logger.warning("No cloud storage credentials provided, file storage will be local only")
+                    self.cloud_storage = None
             except Exception as e:
                 logger.warning(f"Failed to initialize cloud storage: {e}")
                 self.cloud_storage = None
@@ -610,9 +613,17 @@ class AssetGenerationApp:
         # Clear active generations
         self.active_generations.clear()
         
-        # Clean up generators
+        # Clean up generators and storage
         self.llm_generator = None
         self.asset_generator = None
+        
+        # Properly disconnect cloud storage
+        if self.cloud_storage:
+            try:
+                await self.cloud_storage.disconnect()
+                logger.info("Cloud storage disconnected")
+            except Exception as e:
+                logger.warning(f"Error disconnecting cloud storage: {e}")
         self.cloud_storage = None
         
         logger.info("Application shutdown completed")
