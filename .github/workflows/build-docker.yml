@@ -12,7 +12,7 @@ on:
       - '.github/workflows/build-docker.yml'
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: an0da/3s-asset-generator
+  IMAGE_NAME: an0da/3d-asset-generator
 
 jobs:
   build-and-push:
