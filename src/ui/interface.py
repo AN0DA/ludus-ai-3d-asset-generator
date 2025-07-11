@@ -25,7 +25,7 @@ from ..models.asset_model import (
     GenerationStatus, AssetMetadata
 )
 from ..utils.validators import ValidationException
-from ..utils.config import ConfigManager
+from ..utils.env_config import get_settings
 
 
 class AssetGeneratorInterface:
@@ -62,17 +62,6 @@ class AssetGeneratorInterface:
                 supports_image_to_3d=False,
                 supported_output_formats=[FileFormat.GLB, FileFormat.FBX, FileFormat.OBJ, FileFormat.USDZ],
                 quality_levels=[QualityLevel.STANDARD, QualityLevel.HIGH, QualityLevel.ULTRA]
-            ),
-            ServiceProvider.KAEDIM: ServiceConfig(
-                api_key=os.getenv("KAEDIM_API_KEY", "demo_key_kaedim_12345678"),
-                base_url="https://api.kaedim3d.com",
-                max_requests_per_minute=5,
-                max_requests_per_day=50,
-                cost_per_generation=2.00,
-                supports_text_to_3d=False,
-                supports_image_to_3d=True,
-                supported_output_formats=[FileFormat.OBJ, FileFormat.FBX],
-                quality_levels=[QualityLevel.STANDARD, QualityLevel.HIGH]
             )
         }
     
@@ -237,17 +226,10 @@ class AssetGeneratorInterface:
                         elem_classes=["custom-input"]
                     )
                     
-                    self.kaedim_api_key = gr.Textbox(
-                        label="Kaedim API Key", 
+                    self.llm_api_key = gr.Textbox(
+                        label="LLM API Key",
                         type="password",
-                        placeholder="Enter your Kaedim API key",
-                        elem_classes=["custom-input"]
-                    )
-                    
-                    self.openai_api_key = gr.Textbox(
-                        label="OpenAI API Key",
-                        type="password",
-                        placeholder="Enter your OpenAI API key (for DALL-E)",
+                        placeholder="Enter your LLM API key (OpenAI, etc.)",
                         elem_classes=["custom-input"]
                     )
                 
@@ -664,8 +646,7 @@ class AssetGeneratorInterface:
 # Factory function for easy interface creation
 def create_interface(
     meshy_api_key: Optional[str] = None,
-    kaedim_api_key: Optional[str] = None,
-    openai_api_key: Optional[str] = None,
+    llm_api_key: Optional[str] = None,
     cache_dir: Optional[Path] = None
 ) -> AssetGeneratorInterface:
     """Factory function to create the asset generator interface."""
@@ -676,20 +657,6 @@ def create_interface(
         configs[ServiceProvider.MESHY_AI] = ServiceConfig(
             api_key=meshy_api_key,
             base_url="https://api.meshy.ai",
-            supports_text_to_3d=True
-        )
-    
-    if kaedim_api_key:
-        configs[ServiceProvider.KAEDIM] = ServiceConfig(
-            api_key=kaedim_api_key,
-            base_url="https://api.kaedim3d.com",
-            supports_image_to_3d=True
-        )
-    
-    if openai_api_key:
-        configs[ServiceProvider.OPENAI_DALLE] = ServiceConfig(
-            api_key=openai_api_key,
-            base_url="https://api.openai.com/v1",
             supports_text_to_3d=True
         )
     

@@ -26,7 +26,7 @@ from ..models.asset_model import (
     AssetType, StylePreference, QualityLevel, FileFormat,
     GenerationStatus, AssetMetadata
 )
-from ..utils.config import ConfigManager, get_config
+from ..utils.env_config import get_settings
 from ..utils.validators import ValidationException
 
 from .task_manager import TaskManager
@@ -42,13 +42,12 @@ class AssetGenerationApp:
     def __init__(self, config_path: Optional[Path] = None):
         """Initialize the application."""
         try:
-            self.config_manager = ConfigManager()
-            # Load configuration from environment variables and YAML files
-            self.config = self.config_manager.load_config()
+            # Load configuration from environment variables
+            self.settings = get_settings()
             logger.info("Configuration loaded successfully")
         except Exception as e:
             logger.warning(f"Config loading failed, using defaults: {e}")
-            self.config = None
+            self.settings = None
         
         # Initialize directories
         self.temp_dir = Path(tempfile.gettempdir()) / "asset_generator"
@@ -130,22 +129,40 @@ class AssetGenerationApp:
     
     def _create_llm_config(self) -> LLMConfig:
         """Create LLM configuration from environment variables."""
-        return LLMConfig(
-            api_key=os.getenv("OPENAI_API_KEY", "demo"),
-            model=os.getenv("LLM_MODEL", "gpt-4-turbo"),
-            base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2000")),
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            timeout=int(os.getenv("LLM_TIMEOUT", "60")),
-            max_retries=int(os.getenv("LLM_MAX_RETRIES", "3"))
-        )
+        if self.settings:
+            llm_config = self.settings.get_llm_config()
+            return LLMConfig(
+                api_key=llm_config["api_key"] or "demo",
+                model=llm_config["model"],
+                base_url=llm_config["base_url"] or "https://api.openai.com/v1",
+                max_tokens=llm_config["max_tokens"],
+                temperature=llm_config["temperature"],
+                timeout=llm_config["timeout"],
+                max_retries=llm_config["max_retries"]
+            )
+        else:
+            # Fallback to environment variables
+            return LLMConfig(
+                api_key=os.getenv("LLM_API_KEY", "demo"),
+                model=os.getenv("LLM_MODEL", "gpt-4-turbo"),
+                base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
+                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "2000")),
+                temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
+                timeout=int(os.getenv("LLM_TIMEOUT", "60")),
+                max_retries=int(os.getenv("LLM_MAX_RETRIES", "3"))
+            )
     
     def _create_service_configs(self) -> Dict[ServiceProvider, ServiceConfig]:
         """Create 3D generation service configurations."""
         configs = {}
         
-        # Use environment variables for service configuration
-        meshy_key = os.getenv("MESHY_API_KEY")
+        if self.settings:
+            # Use settings for service configuration
+            meshy_key = self.settings.meshy_api_key
+        else:
+            # Fallback to environment variables
+            meshy_key = os.getenv("MESHY_API_KEY")
+            
         logger.info(f"MESHY_API_KEY found: {bool(meshy_key)}")
         if meshy_key:
             configs[ServiceProvider.MESHY_AI] = ServiceConfig(
@@ -162,16 +179,16 @@ class AssetGenerationApp:
         return configs
     
     def _create_storage_config(self) -> StorageConfig:
-        """Create storage configuration from app config."""
-        if self.config:
-            storage_config = self.config.object_storage
+        """Create storage configuration from app settings."""
+        if self.settings:
+            storage_config = self.settings.get_storage_config()
             return StorageConfig(
                 provider=StorageProvider.S3_COMPATIBLE,
-                bucket_name=storage_config.bucket_name,
-                region=storage_config.region,
-                access_key_id=storage_config.access_key_id,
-                secret_access_key=storage_config.secret_access_key,
-                endpoint_url=storage_config.endpoint_url
+                bucket_name=storage_config["bucket_name"],
+                region=storage_config["region"],
+                access_key_id=storage_config["access_key_id"],
+                secret_access_key=storage_config["secret_access_key"],
+                endpoint_url=storage_config["endpoint_url"]
             )
         else:
             # Use environment variables as fallback

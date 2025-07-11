@@ -47,6 +47,7 @@ sys.path.insert(0, str(project_root))
 try:
     from src.core.app import AssetGenerationApp
     from src.ui import create_app_interface
+    from src.utils.env_config import get_settings
 except ImportError as e:
     logger.error("Failed to import required modules", error=str(e))
     print(f"❌ Import error: {e}")
@@ -74,6 +75,9 @@ def main():
     print("=" * 50)
     
     try:
+        # Get configuration settings
+        settings = get_settings()
+        
         # Initialize the application
         app = asyncio.run(initialize_app())
         
@@ -81,17 +85,17 @@ def main():
         print("🌐 Creating refactored web interface...")
         interface = create_app_interface(app)
         
-        # Launch the application
-        print("🎉 Launching application on http://localhost:7860")
+        # Launch the application with settings from environment
+        print(f"🎉 Launching application on http://{settings.gradio_host}:{settings.gradio_port}")
         print("📱 Interface: Modern, simplified UI with improved UX")
         print("=" * 50)
         
         interface.launch(
-            server_name="0.0.0.0",
-            server_port=7860,
-            share=False,
-            debug=False,
-            show_error=True,
+            server_name=settings.gradio_host,
+            server_port=settings.gradio_port,
+            share=settings.gradio_share,
+            debug=settings.gradio_debug,
+            show_error=settings.gradio_show_error,
             quiet=False
         )
         
