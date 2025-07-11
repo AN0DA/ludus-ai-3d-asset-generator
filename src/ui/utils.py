@@ -79,7 +79,7 @@ class UIUtils:
         """Format asset metadata for display."""
         if not metadata:
             return UIUtils.create_status_html("info", "No metadata available")
-        
+
         html_parts = ["<div class='metadata-display'>"]
         
         # Basic info
@@ -103,7 +103,109 @@ class UIUtils:
         
         html_parts.append("</div>")
         return "".join(html_parts)
+
+    @staticmethod
+    def format_metadata_html(metadata: Dict[str, Any]) -> str:
+        """Format metadata for display in HTML format."""
+        if not metadata:
+            return '<div class="no-asset">No metadata found.</div>'
+            
+        html = '<div class="asset-metadata">'
+        
+        # Format specific fields with nice labels
+        field_labels = {
+            'name': 'Asset Name',
+            'description': 'Description',
+            'asset_type': 'Type',
+            'quality_level': 'Quality Level',
+            'file_format': 'Format',
+            'file_size': 'File Size',
+            'polygon_count': 'Polygon Count',
+            'content_type': 'Content Type',
+            'last_modified': 'Last Modified',
+            'generated_at': 'Generated At',
+            'generation_time': 'Generation Time',
+            'service': 'Service',
+            'cost': 'Cost'
+        }
+        
+        # Display known fields first
+        for key, label in field_labels.items():
+            if key in metadata:
+                value = metadata[key]
+                
+                # Format specific values
+                if key == 'file_size' and isinstance(value, (int, float)):
+                    value = UIUtils.format_file_size(int(value))
+                elif key == 'polygon_count' and isinstance(value, (int, float)):
+                    value = f"{int(value):,}"
+                elif key == 'cost' and isinstance(value, (int, float)):
+                    value = f"${float(value):.2f}"
+                elif key == 'generation_time' and isinstance(value, (int, float)):
+                    value = UIUtils.format_duration(float(value))
+                
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        # Display any remaining fields
+        for key, value in metadata.items():
+            if key not in field_labels:
+                label = key.replace('_', ' ').title()
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        html += '</div>'
+        return html
     
+    @staticmethod
+    def format_metadata_html(metadata: Dict[str, Any]) -> str:
+        """Format metadata for display in HTML format."""
+        if not metadata:
+            return '<div class="no-asset">No metadata found.</div>'
+            
+        html = '<div class="asset-metadata">'
+        
+        # Format specific fields with nice labels
+        field_labels = {
+            'name': 'Asset Name',
+            'description': 'Description',
+            'asset_type': 'Type',
+            'quality_level': 'Quality Level',
+            'file_format': 'Format',
+            'file_size': 'File Size',
+            'polygon_count': 'Polygon Count',
+            'content_type': 'Content Type',
+            'last_modified': 'Last Modified',
+            'generated_at': 'Generated At',
+            'generation_time': 'Generation Time',
+            'service': 'Service',
+            'cost': 'Cost'
+        }
+        
+        # Display known fields first
+        for key, label in field_labels.items():
+            if key in metadata:
+                value = metadata[key]
+                
+                # Format specific values
+                if key == 'file_size' and isinstance(value, (int, float)):
+                    value = UIUtils.format_file_size(int(value))
+                elif key == 'polygon_count' and isinstance(value, (int, float)):
+                    value = f"{int(value):,}"
+                elif key == 'cost' and isinstance(value, (int, float)):
+                    value = f"${float(value):.2f}"
+                elif key == 'generation_time' and isinstance(value, (int, float)):
+                    value = UIUtils.format_duration(float(value))
+                
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        # Display any remaining fields
+        for key, value in metadata.items():
+            if key not in field_labels:
+                label = key.replace('_', ' ').title()
+                html += f'<div class="metadata-grid"><strong>{label}:</strong> {value}</div>'
+        
+        html += '</div>'
+        return html
+
     @staticmethod
     def validate_inputs(
         description: str,
