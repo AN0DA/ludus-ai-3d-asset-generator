@@ -1,9 +1,8 @@
 """
 UI Components for the AI 3D Asset Generator.
 
-This module contains methods to create various UI components for the Gradio interface.
+This module contains methods to create reusable UI components for the Gradio interface.
 """
-
 
 import gradio as gr
 
@@ -13,8 +12,7 @@ from src.models.asset_model import AssetType, FileFormat, QualityLevel, StylePre
 class UIComponents:
     """Factory class for creating UI components."""
 
-    @staticmethod
-    def create_header() -> None:
+    def create_header(self) -> None:
         """Create the application header."""
         gr.HTML("""
             <div class="app-header">
@@ -23,8 +21,9 @@ class UIComponents:
             </div>
         """)
 
-    @staticmethod
-    def create_generation_form() -> tuple[gr.Textbox, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Button]:
+    def create_generation_form(
+        self,
+    ) -> tuple[gr.Textbox, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Dropdown, gr.Button]:
         """Create the asset generation form components."""
         with gr.Group(elem_classes=["section-card"]):
             gr.HTML('<h3 class="section-title">🎨 Asset Description</h3>')
@@ -48,10 +47,12 @@ class UIComponents:
 
                 style = gr.Dropdown(
                     label="Art Style",
-                    choices=[(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                    value=StylePreference.REALISTIC.value,
+                    choices=[("None", "none")]
+                    + [(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
+                    value="none",
+                    allow_custom_value=False,
                     elem_classes=["form-input"],
-                    info="Choose the visual style",
+                    info="Choose the visual style (optional)",
                 )
 
             with gr.Row():
@@ -75,8 +76,7 @@ class UIComponents:
 
         return description, asset_type, style, quality, format_choice, generate_btn
 
-    @staticmethod
-    def create_progress_section() -> tuple[gr.HTML, gr.HTML, gr.Button]:
+    def create_progress_section(self) -> tuple[gr.HTML, gr.HTML, gr.Button]:
         """Create the progress monitoring section."""
         with gr.Group(elem_classes=["section-card"]):
             gr.HTML('<h3 class="section-title">📊 Progress</h3>')
@@ -101,13 +101,11 @@ class UIComponents:
 
         return status_display, progress_display, cancel_btn
 
-    @staticmethod
-    def create_error_display() -> gr.HTML:
+    def create_error_display(self) -> gr.HTML:
         """Create the error display component."""
         return gr.HTML(visible=False, elem_classes=["error-display"])
 
-    @staticmethod
-    def create_help_section() -> None:
+    def create_help_section(self) -> None:
         """Create the help/tips section."""
         gr.HTML("""
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-top: 1rem;">
@@ -121,15 +119,13 @@ class UIComponents:
         </div>
         """)
 
-    @staticmethod
     def create_results_section(
-        storage_available: bool,
+        self, storage_available: bool
     ) -> tuple[gr.Model3D, gr.HTML, gr.Button, gr.Button, gr.File, gr.Dropdown, gr.Button]:
         """Create the results display section."""
         with gr.Group(elem_classes=["section-card"]):
             gr.HTML('<h3 class="section-title">✨ Generated Asset</h3>')
 
-            # Storage status info
             if not storage_available:
                 gr.HTML("""
                 <div class="status-warning">
@@ -139,7 +135,12 @@ class UIComponents:
 
             with gr.Row():
                 with gr.Column(scale=2):
-                    model_viewer = gr.Model3D(label="3D Model Preview", elem_classes=["model-viewer"])
+                    model_viewer = gr.Model3D(
+                        label="3D Model Preview",
+                        elem_classes=["model-viewer"],
+                        interactive=False,
+                        height=400,
+                    )
 
                 with gr.Column(scale=1):
                     metadata_display = gr.HTML(
@@ -150,18 +151,20 @@ class UIComponents:
                 download_btn = gr.Button(
                     "📥 Download Model", variant="primary", elem_classes=["btn-primary"], visible=False
                 )
-
                 share_btn = gr.Button(
                     "🔗 Share Asset", variant="secondary", elem_classes=["btn-secondary"], visible=False
                 )
 
-            download_file = gr.File(label="Download", visible=False)
+            download_file = gr.File(label="Download", visible=False, interactive=False)
 
-            # Asset selection dropdown
             with gr.Row():
                 with gr.Column(scale=4):
                     asset_list = gr.Dropdown(
-                        label="Available Models", choices=[], interactive=True, elem_classes=["dropdown-assets"]
+                        label="Available Models",
+                        choices=[],
+                        interactive=True,
+                        allow_custom_value=False,
+                        elem_classes=["dropdown-assets"],
                     )
                 with gr.Column(scale=1):
                     refresh_assets_btn = gr.Button(
@@ -170,28 +173,6 @@ class UIComponents:
 
         return model_viewer, metadata_display, download_btn, share_btn, download_file, asset_list, refresh_assets_btn
 
-    @staticmethod
-    def create_history_section() -> tuple[gr.Gallery, gr.Button, gr.Button]:
-        """Create the generation history section."""
-        with gr.Group(elem_classes=["section-card"]):
-            gr.HTML('<h3 class="section-title">📚 Generation History</h3>')
-
-            history_gallery = gr.Gallery(
-                label="Recent Generations",
-                show_label=False,
-                elem_classes=["gallery-container"],
-                columns=3,
-                height="auto",
-            )
-
-            with gr.Row():
-                refresh_history_btn = gr.Button("🔄 Refresh", elem_classes=["btn-secondary"])
-
-                clear_history_btn = gr.Button("🗑️ Clear History", elem_classes=["btn-secondary"])
-
-        return history_gallery, refresh_history_btn, clear_history_btn
-
-    @staticmethod
-    def create_timer() -> gr.Timer:
+    def create_timer(self) -> gr.Timer:
         """Create a timer for progress monitoring."""
         return gr.Timer(value=2, active=False)

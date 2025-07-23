@@ -1,11 +1,5 @@
-"""
-Task management system for background operations.
-
-This module provides comprehensive task lifecycle management including
-creation, monitoring, cancellation, and cleanup of background tasks.
-"""
-
 import asyncio
+import contextlib
 import uuid
 from datetime import datetime
 from typing import Any
@@ -18,7 +12,7 @@ logger = structlog.get_logger(__name__)
 class TaskManager:
     """Manages background tasks and their lifecycle."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tasks: dict[str, asyncio.Task] = {}
         self.task_status: dict[str, dict[str, Any]] = {}
         self.cleanup_interval = 300  # 5 minutes
@@ -62,7 +56,7 @@ class TaskManager:
 
         logger.info(f"Cleaned up {len(completed_tasks)} completed tasks")
 
-    def create_task(self, coro, task_id: str | None = None) -> str:
+    def create_task(self, coro: Any, task_id: str | None = None) -> str:
         """Create and track a new background task."""
         if task_id is None:
             task_id = str(uuid.uuid4())
@@ -84,7 +78,7 @@ class TaskManager:
         """Get the current status of a task."""
         return self.task_status.get(task_id, {"status": "not_found"})
 
-    def update_task_status(self, task_id: str, **kwargs) -> None:
+    def update_task_status(self, task_id: str, **kwargs: Any) -> None:
         """Update the status of a task."""
         if task_id in self.task_status:
             self.task_status[task_id].update(kwargs)
@@ -104,13 +98,11 @@ class TaskManager:
         """Shutdown the task manager and clean up all tasks."""
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
 
         # Cancel all running tasks
-        for task_id, task in self.tasks.items():
+        for _task_id, task in self.tasks.items():
             if not task.done():
                 task.cancel()
 

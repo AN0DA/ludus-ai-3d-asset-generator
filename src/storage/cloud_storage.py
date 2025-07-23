@@ -141,13 +141,13 @@ class StorageError(Exception):
         self.details = details or {}
 
 
-class FileNotFoundError(StorageError):
+class StorageFileNotFoundError(StorageError):
     """File not found in storage."""
 
     pass
 
 
-class PermissionError(StorageError):
+class StoragePermissionError(StorageError):
     """Permission denied for storage operation."""
 
     pass
@@ -460,8 +460,8 @@ __all__ = [
     "UploadProgress",
     "FileInfo",
     "StorageError",
-    "FileNotFoundError",
-    "PermissionError",
+    "StorageFileNotFoundError",
+    "StoragePermissionError",
     "QuotaExceededError",
     "NetworkError",
     "ValidationError",

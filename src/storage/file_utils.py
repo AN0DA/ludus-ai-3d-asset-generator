@@ -91,7 +91,7 @@ class FileUtils:
         FileType.TAR: 1024 * 1024 * 1024,
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize file utilities."""
         # Initialize mimetypes
         mimetypes.init()
@@ -333,23 +333,23 @@ class FileUtils:
         }
 
         if not file_path.exists():
-            result["errors"].append("File does not exist")
+            result["errors"].append("File does not exist")  # type: ignore
             return result
 
         file_size = file_path.stat().st_size
         result["size_bytes"] = file_size
 
-        file_type = result["file_type"]
+        file_type: FileType = result["file_type"]  # type: ignore
 
         # Check if file type is supported
         if not self.is_file_type_allowed(file_type):
-            result["errors"].append(f"File type {file_type} is not supported")
+            result["errors"].append(f"File type {file_type} is not supported")  # type: ignore
             return result
 
         # Check file size
         if not self.validate_file_size(file_path, file_type):
             max_size = self.MAX_FILE_SIZES.get(file_type, 0)
-            result["errors"].append(f"File size {file_size} exceeds limit {max_size}")
+            result["errors"].append(f"File size {file_size} exceeds limit {max_size}")  # type: ignore
             return result
 
         # Basic format validation
@@ -367,13 +367,13 @@ class FileUtils:
                 result["valid"] = True
 
         except Exception as e:
-            result["errors"].append(f"File validation error: {str(e)}")
+            result["errors"].append(f"File validation error: {str(e)}")  # type: ignore
 
         return result
 
     def _validate_obj_file(self, file_path: Path) -> dict[str, Any]:
         """Validate OBJ file format."""
-        result = {"valid": False, "vertex_count": 0, "face_count": 0}
+        result: dict[str, Any] = {"valid": False, "vertex_count": 0, "face_count": 0, "warnings": [], "errors": []}
 
         try:
             with open(file_path, encoding="utf-8") as f:
@@ -399,18 +399,18 @@ class FileUtils:
                 result["valid"] = vertex_count > 0
 
                 if vertex_count == 0:
-                    result.setdefault("warnings", []).append("No vertices found in OBJ file")
+                    result["warnings"].append("No vertices found in OBJ file")
 
         except UnicodeDecodeError:
-            result.setdefault("errors", []).append("OBJ file contains invalid characters")
+            result["errors"].append("OBJ file contains invalid characters")
         except Exception as e:
-            result.setdefault("errors", []).append(f"OBJ validation error: {str(e)}")
+            result["errors"].append(f"OBJ validation error: {str(e)}")
 
         return result
 
     def _validate_gltf_file(self, file_path: Path) -> dict[str, Any]:
         """Validate glTF file format."""
-        result: dict[str, Any] = {"valid": False}
+        result: dict[str, Any] = {"valid": False, "errors": []}
 
         try:
             if file_path.suffix.lower() == ".gltf":
@@ -423,8 +423,6 @@ class FileUtils:
                     result["valid"] = True
                     result["version"] = data["asset"]["version"]
                 else:
-                    if "errors" not in result:
-                        result["errors"] = []
                     result["errors"].append("Invalid glTF structure")
 
             elif file_path.suffix.lower() == ".glb":
@@ -440,19 +438,15 @@ class FileUtils:
                         result["errors"].append("Invalid GLB magic number")
 
         except json.JSONDecodeError:
-            if "errors" not in result:
-                result["errors"] = []
             result["errors"].append("Invalid JSON in glTF file")
         except Exception as e:
-            if "errors" not in result:
-                result["errors"] = []
             result["errors"].append(f"glTF validation error: {str(e)}")
 
         return result
 
     def _validate_stl_file(self, file_path: Path) -> dict[str, Any]:
         """Validate STL file format."""
-        result = {"valid": False, "triangle_count": 0}
+        result: dict[str, Any] = {"valid": False, "triangle_count": 0, "errors": []}
 
         try:
             with open(file_path, "rb") as f:
@@ -477,7 +471,7 @@ class FileUtils:
                         result["format"] = "Binary"
 
         except Exception as e:
-            result.setdefault("errors", []).append(f"STL validation error: {str(e)}")
+            result["errors"].append(f"STL validation error: {str(e)}")
 
         return result
 

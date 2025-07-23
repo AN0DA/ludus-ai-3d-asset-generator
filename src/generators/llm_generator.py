@@ -10,34 +10,24 @@ import asyncio
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel
 
 from src.generators.base import (
     APIError,
     BaseGenerator,
     GenerationResult,
     GenerationStatus,
-    TimeoutError,
+    GenerationTimeoutError,
     ValidationError,
     with_rate_limiting,
     with_retry,
 )
-
-# Import asset models - adjust import path as needed
-try:
-    from models.asset_model import AssetType, QualityLevel, StylePreference
-except ImportError:
-    # Fallback for different import contexts
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from models.asset_model import AssetType, QualityLevel, StylePreference
+from src.models.asset_model import AssetType, QualityLevel, StylePreference
 
 
 class OutputFormat(str, Enum):
@@ -50,32 +40,20 @@ class OutputFormat(str, Enum):
 
 @dataclass
 class LLMConfig:
-    """
-    Configuration for game asset LLM generator.
+    """Configuration for game asset LLM generator."""
 
-    This uses a simplified configuration approach with direct field mapping
-    to environment variables (e.g., LLM__API_KEY → api_key).
-    """
-
-    # API Configuration
     api_key: str
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4.1"
-
-    # Request Configuration
     timeout: int = 60
     max_retries: int = 3
     rate_limit_requests: int = 30
     rate_limit_window: int = 60
-
-    # Generation Parameters
     max_tokens: int = 2000
     temperature: float = 0.7
     top_p: float = 0.9
     frequency_penalty: float = 0.1
     presence_penalty: float = 0.1
-
-    # Output Configuration
     output_format: OutputFormat = OutputFormat.JSON
     include_examples: bool = True
     validate_json: bool = True
@@ -84,25 +62,18 @@ class LLMConfig:
         """Validate the configuration."""
         if not self.api_key:
             raise ValidationError("API key is required")
-
         if not self.base_url:
             raise ValidationError("Base URL is required")
-
         if self.timeout <= 0:
             raise ValidationError("Timeout must be positive")
-
         if self.max_retries < 0:
             raise ValidationError("Max retries cannot be negative")
-
         if self.rate_limit_requests <= 0:
             raise ValidationError("Rate limit requests must be positive")
-
         if not (0.0 <= self.temperature <= 2.0):
             raise ValidationError("Temperature must be between 0.0 and 2.0")
-
         if not (0.0 <= self.top_p <= 1.0):
             raise ValidationError("Top-p must be between 0.0 and 1.0")
-
         if self.max_tokens <= 0 or self.max_tokens > 4000:
             raise ValidationError("Max tokens must be between 1 and 4000")
 
@@ -112,11 +83,11 @@ class LLMRequest(BaseModel):
 
     model: str
     messages: list[dict[str, str]]
-    max_tokens: int = Field(ge=1, le=4000)
-    temperature: float = Field(ge=0.0, le=2.0)
-    top_p: float = Field(ge=0.0, le=1.0, default=1.0)
-    frequency_penalty: float = Field(ge=-2.0, le=2.0, default=0.0)
-    presence_penalty: float = Field(ge=-2.0, le=2.0, default=0.0)
+    max_tokens: int
+    temperature: float
+    top_p: float = 1.0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
     stream: bool = False
     response_format: dict[str, str] | None = None
 
@@ -136,13 +107,11 @@ class LLMResponse(BaseModel):
         """Extract the main content from the response."""
         if not self.choices:
             return ""
-
         choice = self.choices[0]
         if "message" in choice:
             return choice["message"].get("content", "")
         elif "text" in choice:
             return choice["text"]
-
         return ""
 
     @property
@@ -165,73 +134,43 @@ class LLMResponse(BaseModel):
         if not self.usage:
             return 0
         return self.usage.get("completion_tokens", 0)
-        return self.usage.get("completion_tokens", 0) if self.usage else 0
 
 
 class EnhancedAssetDescription(BaseModel):
     """Structured output model for enhanced asset descriptions."""
 
-    # Core Description
-    enhanced_description: str = Field(..., min_length=50, max_length=1000)
-    asset_name: str = Field(..., min_length=1, max_length=100)
-    asset_category: str = Field(..., min_length=1, max_length=50)
-
-    # Physical Properties
-    physical_properties: dict[str, Any] = Field(default_factory=dict)
+    enhanced_description: str
+    asset_name: str
+    asset_category: str
+    physical_properties: dict[str, Any] = field(default_factory=dict)
     dimensions: dict[str, float] | None = None
     weight: str | None = None
-    materials: list[str] = Field(default_factory=list)
-
-    # Visual Characteristics
-    visual_characteristics: dict[str, Any] = Field(default_factory=dict)
-    color_palette: list[str] = Field(default_factory=list)
-    textures: list[str] = Field(default_factory=list)
-    lighting_effects: list[str] = Field(default_factory=list)
-
-    # Gameplay Mechanics
-    gameplay_mechanics: dict[str, Any] = Field(default_factory=dict)
+    materials: list[str] = field(default_factory=list)
+    visual_characteristics: dict[str, Any] = field(default_factory=dict)
+    color_palette: list[str] = field(default_factory=list)
+    textures: list[str] = field(default_factory=list)
+    lighting_effects: list[str] = field(default_factory=list)
+    gameplay_mechanics: dict[str, Any] = field(default_factory=dict)
     stats: dict[str, int | float] | None = None
-    abilities: list[str] = Field(default_factory=list)
+    abilities: list[str] = field(default_factory=list)
     rarity: str | None = None
-
-    # Technical Requirements
-    technical_requirements: dict[str, Any] = Field(default_factory=dict)
-    estimated_polygon_count: int | None = Field(ge=100, le=100000)
-    texture_resolution: int | None = Field(ge=256, le=4096)
+    technical_requirements: dict[str, Any] = field(default_factory=dict)
+    estimated_polygon_count: int | None = None
+    texture_resolution: int | None = None
     optimization_level: str | None = None
-
-    # Additional Metadata
-    style_notes: list[str] = Field(default_factory=list)
-    inspiration_sources: list[str] = Field(default_factory=list)
+    style_notes: list[str] = field(default_factory=list)
+    inspiration_sources: list[str] = field(default_factory=list)
     modeling_complexity: str | None = None
-
-    @validator("estimated_polygon_count")
-    def validate_polygon_count(cls, v):
-        """Validate polygon count is reasonable."""
-        if v is not None and v < 100:
-            raise ValueError("Polygon count too low for game assets")
-        return v
-
-    @validator("color_palette")
-    def validate_colors(cls, v):
-        """Validate color palette entries."""
-        if len(v) > 10:
-            raise ValueError("Too many colors in palette (max 10)")
-        return v
 
 
 class LLMGenerator(BaseGenerator):
     """
     Comprehensive LLM generator for game asset description enhancement.
-
-    This generator specializes in creating detailed, game-specific asset
-    descriptions with structured output, technical specifications, and
-    gameplay-relevant information using OpenAI-compatible APIs.
     """
 
-    def __init__(self, config: LLMConfig):
-        super().__init__(config)
-        self.config: LLMConfig = config  # Type hint for better IDE support
+    def __init__(self, config: LLMConfig) -> None:
+        super().__init__(config, name="LLMGenerator")
+        self.config: LLMConfig = config
         self.client = httpx.AsyncClient(
             base_url=config.base_url,
             headers={
@@ -240,11 +179,8 @@ class LLMGenerator(BaseGenerator):
             },
             timeout=config.timeout,
         )
-
-        # Initialize prompt templates
         self._init_prompt_templates()
         self._init_few_shot_examples()
-
         self.logger.info(
             "LLM Generator initialized",
             model=config.model,
@@ -278,7 +214,7 @@ Focus on creating assets that feel authentic within their respective game worlds
 
 Focus on:
 - Combat mechanics and damage types
-- Grip ergonomics and handling characteristics  
+- Grip ergonomics and handling characteristics
 - Material composition and craftsmanship quality
 - Visual effects during use (particles, lighting)
 - Appropriate polygon budget for weapon class
@@ -352,7 +288,7 @@ Focus on:
                         "finish": "matte iron with minor oxidation",
                         "grip_style": "leather wrap with brass wire",
                     },
-                    "color_palette": ["steel gray", "brown leather", "brass"],
+                    "color_palette": ["steelgray", "brown leather", "brass"],
                     "textures": ["brushed metal", "worn leather", "dark wood grain"],
                     "lighting_effects": ["subtle metallic reflection"],
                     "gameplay_mechanics": {
@@ -374,16 +310,12 @@ Focus on:
             }
         ]
 
-    async def validate_input(self, prompt: str, **kwargs) -> None:
+    async def validate_input(self, prompt: str, **kwargs: Any) -> None:
         """Validate input parameters before generation."""
-        # Call common validation from base class
         self._validate_common_params(prompt)
-
-        # LLM-specific validation with flexible type handling
         asset_type = kwargs.get("asset_type")
         if asset_type is not None:
             if isinstance(asset_type, str):
-                # Try to convert string to AssetType enum
                 try:
                     asset_type_lower = asset_type.lower().strip()
                     valid_asset_type = None
@@ -393,14 +325,13 @@ Focus on:
                             break
                     if valid_asset_type is None:
                         raise ValueError(f"Invalid asset type: {asset_type}")
-                    # Update kwargs with converted enum
                     kwargs["asset_type"] = valid_asset_type
-                except (ValueError, AttributeError):
+                except (ValueError, AttributeError) as e:
                     raise ValidationError(
                         f"Invalid asset type. Must be one of: {', '.join([t.value for t in AssetType])}",
                         field_name="asset_type",
                         field_value=asset_type,
-                    )
+                    ) from e
             elif not isinstance(asset_type, AssetType):
                 raise ValidationError(
                     f"Asset type must be string or AssetType enum, got {type(asset_type)}",
@@ -410,14 +341,11 @@ Focus on:
 
         style_preferences = kwargs.get("style_preferences", [])
         if style_preferences:
-            # Handle both single string and list of strings
             if isinstance(style_preferences, str):
                 style_preferences = [style_preferences]
-
             validated_styles = []
             for style in style_preferences:
                 if isinstance(style, str):
-                    # Try to convert string to StylePreference enum
                     try:
                         style_lower = style.lower().strip()
                         valid_style = None
@@ -428,12 +356,12 @@ Focus on:
                         if valid_style is None:
                             raise ValueError(f"Invalid style preference: {style}")
                         validated_styles.append(valid_style)
-                    except (ValueError, AttributeError):
+                    except (ValueError, AttributeError) as e:
                         raise ValidationError(
                             f"Invalid style preference: {style}. Must be one of: {', '.join([s.value for s in StylePreference])}",
                             field_name="style_preferences",
                             field_value=style_preferences,
-                        )
+                        ) from e
                 elif isinstance(style, StylePreference):
                     validated_styles.append(style)
                 else:
@@ -442,13 +370,11 @@ Focus on:
                         field_name="style_preferences",
                         field_value=style_preferences,
                     )
-            # Update kwargs with validated styles
             kwargs["style_preferences"] = validated_styles
 
         quality_level = kwargs.get("quality_level")
         if quality_level is not None:
             if isinstance(quality_level, str):
-                # Try to convert string to QualityLevel enum
                 try:
                     quality_lower = quality_level.lower().strip()
                     valid_quality = None
@@ -458,14 +384,13 @@ Focus on:
                             break
                     if valid_quality is None:
                         raise ValueError(f"Invalid quality level: {quality_level}")
-                    # Update kwargs with converted enum
                     kwargs["quality_level"] = valid_quality
-                except (ValueError, AttributeError):
+                except (ValueError, AttributeError) as e:
                     raise ValidationError(
                         f"Invalid quality level. Must be one of: {', '.join([q.value for q in QualityLevel])}",
                         field_name="quality_level",
                         field_value=quality_level,
-                    )
+                    ) from e
             elif not isinstance(quality_level, QualityLevel):
                 raise ValidationError(
                     f"Quality level must be string or QualityLevel enum, got {type(quality_level)}",
@@ -483,14 +408,11 @@ Focus on:
 
     @with_retry(max_retries=3, backoff_factor=1.5)
     @with_rate_limiting(requests_per_window=30, window_seconds=60)
-    async def generate(
+    async def generate(  # type: ignore[override]
         self,
         prompt: str,
         generation_id: str | None = None,
-        asset_type: AssetType | None = None,
-        style_preferences: list[StylePreference] | None = None,
-        quality_level: QualityLevel | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> GenerationResult:
         """
         Generate enhanced game asset description using LLM.
@@ -498,9 +420,6 @@ Focus on:
         Args:
             prompt: Input description of the asset
             generation_id: Optional unique identifier
-            asset_type: Type of asset being generated
-            style_preferences: Visual style preferences
-            quality_level: Target quality level for the asset
             **kwargs: Additional generation parameters
 
         Returns:
@@ -516,25 +435,19 @@ Focus on:
             # Validate input
             await self.validate_input(
                 prompt,
-                asset_type=asset_type,
-                style_preferences=style_preferences,
-                quality_level=quality_level,
                 **kwargs,
             )
 
             # Prepare request with game-specific context
             request_data = self._prepare_game_asset_request(
                 prompt=prompt,
-                asset_type=asset_type,
-                style_preferences=style_preferences,
-                quality_level=quality_level,
                 **kwargs,
             )
 
             self.logger.info(
                 "Starting game asset enhancement",
                 generation_id=result.generation_id,
-                asset_type=asset_type.value if asset_type else "unknown",
+                asset_type=kwargs.get("asset_type", "unknown"),
                 prompt_length=len(prompt),
                 model=self.config.model,
             )
@@ -551,9 +464,11 @@ Focus on:
             result.data = {
                 "enhanced_asset": enhanced_data,
                 "original_prompt": prompt,
-                "asset_type": asset_type.value if asset_type else None,
-                "style_preferences": [s.value for s in style_preferences] if style_preferences else [],
-                "quality_level": quality_level.value if quality_level else None,
+                "asset_type": kwargs.get("asset_type"),
+                "style_preferences": [s.value for s in kwargs.get("style_preferences", [])]
+                if kwargs.get("style_preferences")
+                else [],
+                "quality_level": kwargs.get("quality_level"),
                 "model_used": self.config.model,
                 "output_format": self.config.output_format.value,
             }
@@ -604,11 +519,9 @@ Focus on:
         asset_type: AssetType | None = None,
         style_preferences: list[StylePreference] | None = None,
         quality_level: QualityLevel | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> LLMRequest:
         """Prepare the API request with game-specific prompts."""
-
-        # Build context information
         context_parts = []
 
         if asset_type:
@@ -622,8 +535,6 @@ Focus on:
 
         if quality_level:
             context_parts.append(f"Quality Level: {quality_level.value}")
-
-            # Add quality-specific requirements
             quality_specs = {
                 QualityLevel.DRAFT: "Focus on basic shapes and simple materials. Low polygon count (500-2000). Basic textures (512px).",
                 QualityLevel.STANDARD: "Balanced detail and performance. Medium polygon count (2000-8000). Standard textures (1024px).",
@@ -633,11 +544,8 @@ Focus on:
             context_parts.append(quality_specs.get(quality_level, ""))
 
         context = "\n\n".join(context_parts)
-
-        # Prepare messages
         messages = [{"role": "system", "content": self.system_prompt}]
 
-        # Add few-shot examples if enabled
         if self.config.include_examples:
             for example in self.few_shot_examples:
                 messages.extend(
@@ -647,7 +555,6 @@ Focus on:
                     ]
                 )
 
-        # Add the actual request
         user_message = f"""Please enhance the following asset description with comprehensive game development specifications.
 
 {context}
@@ -655,10 +562,8 @@ Focus on:
 Input Description: {prompt}
 
 Provide a detailed JSON response following the established schema with all required fields filled out appropriately for a game asset."""
-
         messages.append({"role": "user", "content": user_message})
 
-        # Prepare request object
         request_data = LLMRequest(
             model=self.config.model,
             messages=messages,
@@ -669,16 +574,12 @@ Provide a detailed JSON response following the established schema with all requi
             presence_penalty=kwargs.get("presence_penalty", self.config.presence_penalty),
         )
 
-        # Add response format for JSON mode if supported
         if self.config.output_format == OutputFormat.JSON:
             request_data.response_format = {"type": "json_object"}
-
         return request_data
 
     async def _make_api_call(self, request_data: LLMRequest) -> LLMResponse:
         """Make the actual API call to the LLM service."""
-
-        # Check for demo mode
         if self.config.api_key == "demo" or not self.config.api_key or len(self.config.api_key.strip()) < 10:
             self.logger.info("Using demo mode - generating mock response")
             return self._create_demo_response(request_data)
@@ -690,7 +591,6 @@ Provide a detailed JSON response following the established schema with all requi
             )
 
             if response.status_code == 429:
-                # Rate limiting
                 retry_after = int(response.headers.get("retry-after", 60))
                 raise APIError(
                     message="Rate limit exceeded",
@@ -699,12 +599,10 @@ Provide a detailed JSON response following the established schema with all requi
                 )
 
             if response.status_code >= 400:
-                # API error
                 try:
                     error_data = response.json()
-                except:
+                except Exception:
                     error_data = {"error": response.text}
-
                 raise APIError(
                     message=f"LLM API error: {response.status_code}",
                     status_code=response.status_code,
@@ -714,17 +612,17 @@ Provide a detailed JSON response following the established schema with all requi
             return LLMResponse(**response.json())
 
         except httpx.TimeoutException as e:
-            raise TimeoutError(
+            raise GenerationTimeoutError(
                 message="Request to LLM API timed out",
                 timeout_duration=self.config.timeout,
                 original_exception=e,
-            )
+            ) from e
 
         except httpx.RequestError as e:
             raise APIError(
                 message=f"Network error calling LLM API: {str(e)}",
                 original_exception=e,
-            )
+            ) from e
 
     async def _process_response(self, response: LLMResponse, original_prompt: str) -> dict[str, Any]:
         """Process and validate the LLM response."""
@@ -733,19 +631,12 @@ Provide a detailed JSON response following the established schema with all requi
         if not content:
             raise APIError("Empty response from LLM")
 
-        # Parse JSON response
         if self.config.output_format == OutputFormat.JSON:
             try:
-                # Try to extract JSON from response
                 json_match = re.search(r"\{.*\}", content, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                else:
-                    json_str = content
-
+                json_str = json_match.group(0) if json_match else content
                 parsed_data = json.loads(json_str)
 
-                # Validate using Pydantic model if enabled (with better error handling)
                 if self.config.validate_json:
                     try:
                         validated_data = EnhancedAssetDescription(**parsed_data)
@@ -756,9 +647,7 @@ Provide a detailed JSON response following the established schema with all requi
                             error=str(e),
                             raw_data=parsed_data,
                         )
-                        # For GitHub Copilot API, fallback to raw data is fine
                         return parsed_data
-
                 return parsed_data
 
             except json.JSONDecodeError as e:
@@ -766,9 +655,8 @@ Provide a detailed JSON response following the established schema with all requi
                     message=f"Invalid JSON in LLM response: {str(e)}",
                     response_data={"content": content[:500]},
                     original_exception=e,
-                )
+                ) from e
 
-        # For non-JSON formats, return structured text
         return {
             "enhanced_description": content,
             "original_prompt": original_prompt,
@@ -780,13 +668,12 @@ Provide a detailed JSON response following the established schema with all requi
         category_info = {
             "primary_category": "unknown",
             "subcategory": "generic",
-            "tags": [],
+            "tags": [],  # Initialize as empty list
             "complexity_score": 0.5,
         }
 
         description_lower = description.lower()
 
-        # Primary category detection
         weapon_keywords = ["sword", "blade", "axe", "bow", "staff", "dagger", "mace", "hammer"]
         armor_keywords = ["armor", "helmet", "shield", "gauntlet", "boots", "plate", "mail"]
         potion_keywords = ["potion", "elixir", "bottle", "vial", "brew", "tonic"]
@@ -801,15 +688,17 @@ Provide a detailed JSON response following the established schema with all requi
         elif any(keyword in description_lower for keyword in tool_keywords):
             category_info["primary_category"] = "tool"
 
-        # Extract tags from enhanced data
         if isinstance(enhanced_data, dict):
             if "materials" in enhanced_data:
-                category_info["tags"].extend(enhanced_data["materials"])
+                current_tags = category_info["tags"]
+                if isinstance(current_tags, list):
+                    category_info["tags"] = current_tags + enhanced_data["materials"]
 
             if "style_notes" in enhanced_data:
-                category_info["tags"].extend(enhanced_data["style_notes"])
+                current_tags = category_info["tags"]
+                if isinstance(current_tags, list):
+                    category_info["tags"] = current_tags + enhanced_data["style_notes"]
 
-            # Calculate complexity based on polygon count and features
             poly_count = enhanced_data.get("estimated_polygon_count", 1000)
             if poly_count > 10000:
                 category_info["complexity_score"] = 0.9
@@ -849,27 +738,22 @@ Provide a detailed JSON response following the established schema with all requi
 
     def _create_demo_response(self, request_data: LLMRequest) -> LLMResponse:
         """Create a mock response for demo mode."""
-        import json
         import time
 
-        # Extract the prompt from request messages
         prompt = ""
         for message in request_data.messages:
             if message.get("role") == "user":
                 prompt = message.get("content", "")
                 break
 
-        # Generate a realistic demo response based on the prompt
         demo_content = {
             "asset_name": "Enhanced Fantasy Weapon",
             "enhanced_description": f"A magnificent {prompt.lower()} crafted with intricate details and magical properties. This weapon features ornate engravings, a perfectly balanced design, and emanates a subtle mystical aura that suggests both power and craftsmanship.",
             "asset_category": "weapon",
-            # Physical Properties
             "physical_properties": {"weight_class": "medium", "durability": "high", "grip_type": "two_handed"},
             "dimensions": {"length": 120.0, "width": 15.0, "height": 8.0},
             "weight": "3.2 kg",
             "materials": ["enchanted_steel", "leather_wrap", "magical_crystal"],
-            # Visual Characteristics
             "visual_characteristics": {
                 "primary_style": "fantasy",
                 "detail_level": "high",
@@ -878,7 +762,6 @@ Provide a detailed JSON response following the established schema with all requi
             "color_palette": ["#C0C0C0", "#8B4513", "#FFD700", "#FF4500"],
             "textures": ["metal_brushed", "leather_worn", "crystal_glow"],
             "lighting_effects": ["magical_aura", "metal_reflection"],
-            # Gameplay Mechanics
             "gameplay_mechanics": {
                 "weapon_class": "two_handed_sword",
                 "attack_speed": "medium",
@@ -887,18 +770,15 @@ Provide a detailed JSON response following the established schema with all requi
             "stats": {"damage": 85, "speed": 65, "durability": 90, "magic_power": 75},
             "abilities": ["fire_enchantment", "critical_strike", "cleave_attack"],
             "rarity": "epic",
-            # Technical Requirements (Required fields)
             "technical_requirements": {"target_platform": "PC/Console", "performance_tier": "high"},
             "estimated_polygon_count": 3200,
             "texture_resolution": 1024,
             "optimization_level": "standard",
-            # Additional Metadata
             "style_notes": ["fantasy_medieval", "ornate_detailing", "magical_elements"],
             "inspiration_sources": ["medieval_weaponry", "fantasy_games", "magical_artifacts"],
             "modeling_complexity": "intermediate",
         }
 
-        # Create a realistic LLM response structure
         return LLMResponse(
             id="demo_response_" + str(int(time.time())),
             object="chat.completion",
@@ -912,19 +792,8 @@ Provide a detailed JSON response following the established schema with all requi
                 }
             ],
             usage={
-                "prompt_tokens": len(prompt.split()) * 4,  # Rough token estimation
+                "prompt_tokens": len(prompt.split()) * 4,
                 "completion_tokens": 200,
                 "total_tokens": len(prompt.split()) * 4 + 200,
             },
         )
-
-
-# Export the production implementation
-__all__ = [
-    "LLMConfig",
-    "LLMRequest",
-    "LLMResponse",
-    "EnhancedAssetDescription",
-    "OutputFormat",
-    "LLMGenerator",
-]

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 env_file = Path(__file__).parent.parent.parent / ".env"
 if env_file.exists():
-    load_dotenv(env_file, override=True)
+    load_dotenv(env_file, override=False)
     logger.info(f"Loaded environment variables from: {env_file}")
 else:
     logger.warning(f"No .env file found at: {env_file}")
@@ -132,7 +132,7 @@ class AppSettings:
     temp_dir: str = field(default_factory=lambda: os.getenv("TEMP_DIR", "./temp/ai-3d-assets"))
     max_concurrent_generations: int = field(default_factory=lambda: get_env_int("MAX_CONCURRENT_GENERATIONS", 5))
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         # Set debug based on environment if not explicitly set
         if self.environment == "development" and not os.getenv("DEBUG"):
@@ -221,18 +221,18 @@ def reload_settings() -> AppSettings:
     # Force reload of environment variables
     env_file = Path(__file__).parent.parent.parent / ".env"
     if env_file.exists():
-        load_dotenv(env_file, override=True)
+        load_dotenv(env_file, override=False)
     _settings = AppSettings()
     logger.info(f"Reloaded settings for environment: {_settings.environment}")
     return _settings
 
 
 # Convenience functions for backward compatibility
-def get_config():
+def get_config() -> AppSettings:
     """Get configuration - backward compatibility function."""
     return get_settings()
 
 
-def get_app_config():
+def get_app_config() -> AppSettings:
     """Get application configuration - backward compatibility function."""
     return get_settings()

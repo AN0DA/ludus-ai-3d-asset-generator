@@ -72,7 +72,7 @@ class ValidationConfig:
     # API key patterns
     LLM_KEY_PATTERN = r"^sk-[A-Za-z0-9]{48}$"  # OpenAI format, can be extended for other providers
     AWS_ACCESS_KEY_PATTERN = r"^AKIA[0-9A-Z]{16}$"
-    AWS_SECRET_KEY_PATTERN = r"^[A-Za-z0-9/+=]{40}$"
+    AWS_SECRET_KEY_PATTERN = r"^[A-Za-z0-9/+=]{40}$"  # nosec
 
 
 # Custom Exceptions
@@ -470,7 +470,7 @@ class FileValidator:
                 FileValidator._validate_model_header(header, file_path.suffix)
 
         except OSError as e:
-            raise FileValidationException(f"Cannot read file: {str(e)}", code="FILE_READ_ERROR")
+            raise FileValidationException(f"Cannot read file: {str(e)}", code="FILE_READ_ERROR") from e
 
     @staticmethod
     def _validate_image_header(header: bytes, extension: str) -> None:
@@ -502,12 +502,12 @@ class FileValidator:
                 content = header.decode("utf-8", errors="ignore")
                 if not (content.strip().startswith("{") or content.strip().startswith("{")):
                     raise FileValidationException("GLTF file does not appear to be valid JSON", code="INVALID_GLTF")
-            except UnicodeDecodeError:
-                raise FileValidationException("GLTF file contains invalid characters", code="INVALID_GLTF_ENCODING")
-        elif extension == ".glb":
-            # GLB files start with 'glTF'
-            if not header.startswith(b"glTF"):
-                raise FileValidationException("GLB file does not have valid signature", code="INVALID_GLB_SIGNATURE")
+            except UnicodeDecodeError as e:
+                raise FileValidationException(
+                    "GLTF file contains invalid characters", code="INVALID_GLTF_ENCODING"
+                ) from e
+        elif extension == ".glb" and not header.startswith(b"glTF"):
+            raise FileValidationException("GLB file does not have valid signature", code="INVALID_GLB_SIGNATURE")
 
     @staticmethod
     def _calculate_file_hash(file_path: Path) -> str:
@@ -586,7 +586,7 @@ class APIKeyValidator:
         return True
 
     @staticmethod
-    async def test_api_key_validity(service: str, api_key: str, **kwargs) -> bool:
+    async def test_api_key_validity(service: str, api_key: str, **kwargs: Any) -> bool:
         """
         Test if API key is valid by making a test request.
 
@@ -653,7 +653,7 @@ class ConfigValidator:
 
         # Timeout validation
         elif key.endswith("_timeout"):
-            if not isinstance(value, (int, float)) or value <= 0:
+            if not isinstance(value, int | float) or value <= 0:
                 raise ValidationException(f"{key} must be a positive number")
 
         return value
@@ -662,7 +662,7 @@ class ConfigValidator:
 # Custom Validation Decorators
 
 
-def validate_input(**validators) -> Callable[[F], F]:
+def validate_input(**validators: Callable[[Any], Any]) -> Callable[[F], F]:
     """
     Decorator for validating function inputs.
 
@@ -677,7 +677,7 @@ def validate_input(**validators) -> Callable[[F], F]:
 
     def decorator(func: F) -> F:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             import inspect
 
             # Get function signature
@@ -705,7 +705,7 @@ def validate_input(**validators) -> Callable[[F], F]:
     return decorator
 
 
-def validate_async_input(**validators) -> Callable[[AsyncF], AsyncF]:
+def validate_async_input(**validators: Callable[[Any], Any]) -> Callable[[AsyncF], AsyncF]:
     """
     Decorator for validating async function inputs.
 
@@ -720,7 +720,7 @@ def validate_async_input(**validators) -> Callable[[AsyncF], AsyncF]:
 
     def decorator(func: AsyncF) -> AsyncF:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             import inspect
 
             # Get function signature
@@ -752,11 +752,11 @@ def validate_async_input(**validators) -> Callable[[AsyncF], AsyncF]:
     return decorator
 
 
-def require_auth(func: F) -> F:
+def require_auth[F: Callable[..., Any]](func: F) -> F:
     """Decorator to require authentication for function access."""
 
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         # This would integrate with your authentication system
         # For now, it's a placeholder
         auth_token = kwargs.get("auth_token") or (args[0] if args else None)

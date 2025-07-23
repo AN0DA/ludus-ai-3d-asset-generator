@@ -97,7 +97,7 @@ class APIError(GenerationError):
         message: str,
         status_code: int | None = None,
         response_data: dict[str, Any] | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(message, **kwargs)
         self.status_code = status_code
@@ -118,7 +118,7 @@ class ValidationError(GenerationError):
         message: str,
         field_name: str | None = None,
         field_value: Any | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(message, severity=ErrorSeverity.HIGH, **kwargs)
         self.field_name = field_name
@@ -138,21 +138,21 @@ class RateLimitError(APIError):
         self,
         message: str,
         retry_after: int | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(message, severity=ErrorSeverity.LOW, **kwargs)
         self.retry_after = retry_after
         self.details.update({"retry_after": retry_after})
 
 
-class TimeoutError(GenerationError):
+class GenerationTimeoutError(GenerationError):
     """Request timeout errors."""
 
     def __init__(
         self,
         message: str,
         timeout_duration: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(message, severity=ErrorSeverity.MEDIUM, **kwargs)
         self.timeout_duration = timeout_duration
@@ -329,7 +329,7 @@ def with_retry(
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             last_exception = None
 
             for attempt in range(max_retries + 1):
@@ -402,7 +402,7 @@ def with_rate_limiting(
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             await rate_limiter.acquire()
             return await func(*args, **kwargs)
 
@@ -451,7 +451,7 @@ class BaseGenerator(ABC):
         self,
         prompt: str,
         generation_id: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> GenerationResult:
         """
         Generate content based on the input prompt.
@@ -467,7 +467,7 @@ class BaseGenerator(ABC):
         pass
 
     @abstractmethod
-    async def validate_input(self, prompt: str, **kwargs) -> None:
+    async def validate_input(self, prompt: str, **kwargs: Any) -> None:
         """
         Validate input parameters before generation.
 
@@ -581,6 +581,7 @@ def configure_generator_logging(
     processors = [
         structlog.stdlib.filter_by_level,
         structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -595,7 +596,7 @@ def configure_generator_logging(
         processors.append(structlog.dev.ConsoleRenderer())
 
     structlog.configure(
-        processors=processors,
+        processors=processors,  # type: ignore
         wrapper_class=structlog.stdlib.BoundLogger,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
@@ -619,7 +620,7 @@ __all__ = [
     "APIError",
     "ValidationError",
     "RateLimitError",
-    "TimeoutError",
+    "GenerationTimeoutError",
     "RateLimiter",
     "with_retry",
     "with_rate_limiting",
