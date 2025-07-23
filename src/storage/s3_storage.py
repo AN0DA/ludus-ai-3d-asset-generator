@@ -15,6 +15,7 @@ headers in upload operations.
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from datetime import timedelta
@@ -29,17 +30,21 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from .cloud_storage import (
     CloudStorage,
     FileInfo,
-    FileNotFoundError,
     NetworkError,
-    PermissionError,
     QuotaExceededError,
     StorageConfig,
     StorageError,
     StoragePermission,
+    StoragePermissionError,
     UploadProgress,
     ValidationError,
 )
 from .file_utils import FileUtils
+
+
+class S3StorageError(StorageError):
+    """S3-specific storage error."""
+
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,11 @@ class S3Storage(CloudStorage):
         self._bucket = None
         self._session = None
         self.file_utils = FileUtils()
+
+    def _ensure_connected(self) -> None:
+        """Ensure S3 client is connected."""
+        if self._s3_client is None or self._s3_resource is None or self._bucket is None:
+            raise S3StorageError("S3 client not connected. Call connect() first.")
 
     async def connect(self) -> None:
         """Initialize connection to S3-compatible storage."""
@@ -100,12 +110,15 @@ class S3Storage(CloudStorage):
             self._bucket = self._s3_resource.Bucket(self.config.bucket_name)
 
             # Test connection
+            assert self._s3_client is not None
             await self._run_sync(self._s3_client.head_bucket, Bucket=self.config.bucket_name)
 
             logger.info(f"Connected to S3 storage: {self.config.bucket_name}")
 
         except NoCredentialsError as e:
-            raise PermissionError("AWS credentials not found", error_code="NO_CREDENTIALS", details={"error": str(e)})
+            raise StoragePermissionError(
+                "AWS credentials not found", error_code="NO_CREDENTIALS", details={"error": str(e)}
+            ) from e
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "UNKNOWN")
             status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
@@ -113,19 +126,19 @@ class S3Storage(CloudStorage):
             if error_code == "NoSuchBucket":
                 raise StorageError(
                     f"Bucket '{self.config.bucket_name}' does not exist", error_code=error_code, status_code=status_code
-                )
+                ) from e
             elif error_code in ["AccessDenied", "Forbidden"]:
-                raise PermissionError(
+                raise StoragePermissionError(
                     f"Access denied to bucket '{self.config.bucket_name}'",
                     error_code=error_code,
                     status_code=status_code,
-                )
+                ) from e
             else:
                 raise NetworkError(
                     f"Failed to connect to S3 storage: {e}", error_code=error_code, status_code=status_code
-                )
+                ) from e
         except Exception as e:
-            raise StorageError(f"Unexpected error connecting to S3: {e}")
+            raise StorageError(f"Unexpected error connecting to S3: {e}") from e
 
     async def disconnect(self) -> None:
         """Close connection to S3 storage."""
@@ -188,7 +201,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"upload file {key}")
         except Exception as e:
-            raise StorageError(f"Failed to upload file {key}: {e}")
+            raise StorageError(f"Failed to upload file {key}: {e}") from e
 
     async def upload_bytes(
         self,
@@ -222,7 +235,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"upload bytes to {key}")
         except Exception as e:
-            raise StorageError(f"Failed to upload bytes to {key}: {e}")
+            raise StorageError(f"Failed to upload bytes to {key}: {e}") from e
 
     async def download_file(
         self,
@@ -271,7 +284,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"download file {key}")
         except Exception as e:
-            raise StorageError(f"Failed to download file {key}: {e}")
+            raise StorageError(f"Failed to download file {key}: {e}") from e
 
     async def download_bytes(self, key: str) -> bytes:
         """Download file content as bytes."""
@@ -286,7 +299,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"download bytes from {key}")
         except Exception as e:
-            raise StorageError(f"Failed to download bytes from {key}: {e}")
+            raise StorageError(f"Failed to download bytes from {key}: {e}") from e
 
     async def get_file_info(self, key: str) -> FileInfo:
         """Get information about a stored file."""
@@ -295,10 +308,8 @@ class S3Storage(CloudStorage):
 
             # Generate public URL if file is publicly accessible
             public_url = None
-            try:
+            with contextlib.suppress(Exception):
                 public_url = await self.generate_public_url(key)
-            except Exception:
-                pass  # File might not be public
 
             return FileInfo(
                 key=key,
@@ -314,7 +325,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"get info for file {key}")
         except Exception as e:
-            raise StorageError(f"Failed to get file info for {key}: {e}")
+            raise StorageError(f"Failed to get file info for {key}: {e}") from e
 
     async def list_files(
         self,
@@ -355,7 +366,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, "list files")
         except Exception as e:
-            raise StorageError(f"Failed to list files: {e}")
+            raise StorageError(f"Failed to list files: {e}") from e
 
     async def delete_file(self, key: str) -> None:
         """Delete a file from S3 storage."""
@@ -365,7 +376,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"delete file {key}")
         except Exception as e:
-            raise StorageError(f"Failed to delete file {key}: {e}")
+            raise StorageError(f"Failed to delete file {key}: {e}") from e
 
     async def delete_files(self, keys: list[str]) -> dict[str, bool]:
         """Delete multiple files from S3 storage."""
@@ -402,7 +413,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, "delete multiple files")
         except Exception as e:
-            raise StorageError(f"Failed to delete files: {e}")
+            raise StorageError(f"Failed to delete files: {e}") from e
 
     async def file_exists(self, key: str) -> bool:
         """Check if a file exists in S3 storage."""
@@ -416,7 +427,7 @@ class S3Storage(CloudStorage):
                 return False
             await self._handle_client_error(e, f"check existence of file {key}")
         except Exception as e:
-            raise StorageError(f"Failed to check if file {key} exists: {e}")
+            raise StorageError(f"Failed to check if file {key} exists: {e}") from e
 
     async def generate_presigned_url(
         self,
@@ -438,7 +449,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"generate presigned URL for {key}")
         except Exception as e:
-            raise StorageError(f"Failed to generate presigned URL for {key}: {e}")
+            raise StorageError(f"Failed to generate presigned URL for {key}: {e}") from e
 
     async def generate_public_url(self, key: str) -> str | None:
         """Generate a public URL for file access."""
@@ -490,7 +501,7 @@ class S3Storage(CloudStorage):
         except ClientError as e:
             await self._handle_client_error(e, f"copy file from {source_key} to {destination_key}")
         except Exception as e:
-            raise StorageError(f"Failed to copy file from {source_key} to {destination_key}: {e}")
+            raise StorageError(f"Failed to copy file from {source_key} to {destination_key}: {e}") from e
 
     async def move_file(
         self,
@@ -622,12 +633,10 @@ class S3Storage(CloudStorage):
 
         except Exception as e:
             # Abort multipart upload on error
-            try:
+            with contextlib.suppress(Exception):
                 await self._run_sync(
                     self._s3_client.abort_multipart_upload, Bucket=self.config.bucket_name, Key=key, UploadId=upload_id
                 )
-            except Exception:
-                pass  # Best effort cleanup
 
             raise e
 

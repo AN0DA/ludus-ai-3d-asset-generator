@@ -1,10 +1,3 @@
-"""
-Cache management system for optimizing repeated operations.
-
-This module provides intelligent caching with size limits,
-TTL expiration, and automatic cleanup of cached data.
-"""
-
 import hashlib
 import json
 import time
@@ -50,12 +43,7 @@ class CacheManager:
 
     def _get_cache_key(self, data: Any) -> str:
         """Generate a cache key from data."""
-        if isinstance(data, dict):
-            # Sort dict for consistent hashing
-            sorted_data = json.dumps(data, sort_keys=True, default=str)
-        else:
-            sorted_data = str(data)
-
+        sorted_data = json.dumps(data, sort_keys=True, default=str) if isinstance(data, dict) else str(data)
         return hashlib.sha256(sorted_data.encode()).hexdigest()
 
     def get(self, key: str, data: Any, ttl_seconds: int = 3600) -> Any | None:

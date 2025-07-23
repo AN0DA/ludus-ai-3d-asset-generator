@@ -1,10 +1,3 @@
-"""
-Session management for user state and temporary data.
-
-This module handles user sessions, temporary file management,
-and session cleanup with automatic timeout handling.
-"""
-
 import shutil
 import uuid
 from datetime import datetime, timedelta

@@ -47,8 +47,6 @@ try:
     from src.utils.env_config import get_settings
 except ImportError as e:
     logger.error("Failed to import required modules", error=str(e))
-    print(f"❌ Import error: {e}")
-    print("Please ensure all dependencies are installed and the project structure is correct.")
     sys.exit(1)
 
 
@@ -66,7 +64,7 @@ async def initialize_app() -> AssetGenerationApp:
         raise
 
 
-def main():
+def main() -> None:
     """Main entry point for the application."""
     try:
         # Get configuration settings
