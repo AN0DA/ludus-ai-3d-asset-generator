@@ -12,7 +12,7 @@ from src.utils.env_config import AppSettings
 def create_asset_generator(settings: AppSettings) -> Asset3DGenerator | None:
     """Create asset generator based on configuration."""
     meshy_key = settings.meshy_api_key
-    if meshy_key:
+    if meshy_key and meshy_key.strip():  # Check for non-empty, non-whitespace string
         configs: dict[ServiceProvider, ServiceConfig] = {
             ServiceProvider.MESHY_AI: ServiceConfig(
                 api_key=meshy_key,

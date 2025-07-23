@@ -1,14 +1,16 @@
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from src.core.app import AssetGenerationApp
 from src.generators.base import GenerationStatus
 from src.generators.models import GenerationRequest, ProgressUpdate
 from src.models.asset_model import AssetMetadata, AssetType, FileFormat, QualityLevel, StylePreference
 from src.utils.validators import ValidationException
+
+if TYPE_CHECKING:
+    from src.core.app import AssetGenerationApp
 
 logger = structlog.get_logger(__name__)
 
@@ -16,7 +18,7 @@ logger = structlog.get_logger(__name__)
 class GenerationPipeline:
     """Handles the asset generation pipeline."""
 
-    def __init__(self, app: AssetGenerationApp):
+    def __init__(self, app: "AssetGenerationApp"):
         self.app = app
 
     async def generate_asset_pipeline(
