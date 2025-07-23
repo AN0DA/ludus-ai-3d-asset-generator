@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import tempfile
+from typing import Any
 
 import structlog
 
@@ -27,7 +28,7 @@ class UIHandlers:
     def __init__(self, app: AssetGenerationApp):
         """Initialize handlers with the application instance."""
         self.app = app
-        self.generation_history = []
+        self.generation_history: list[dict[str, Any]] = []
         self.current_task_id: str | None = None
         self.current_asset_key: str | None = None
 
@@ -47,7 +48,7 @@ class UIHandlers:
             asset_type_enum = AssetType(asset_type)
             style_enum = StylePreference(style) if style and style.lower() != "none" else None
             quality_enum = QualityLevel(quality)
-            format_enum = FileFormat(format_choice)
+            # format_enum = FileFormat(format_choice)
 
             logger.info("Validation passed, creating session")
 
@@ -58,7 +59,6 @@ class UIHandlers:
                 asset_type=asset_type_enum,
                 style_preference=style_enum,
                 quality_level=quality_enum,
-                output_format=format_enum,
                 session_id=session_id,
             )
             self.current_task_id = task_id
@@ -405,7 +405,7 @@ class UIHandlers:
             error_html = f'<div class="status-error">Error loading asset: {str(e)}</div>'
             return None, error_html, False, False
 
-    def download_selected_asset(self, asset_key):
+    def download_selected_asset(self, asset_key: str | None) -> str | None:
         """Download the selected asset file."""
         try:
             storage = self.app.cloud_storage

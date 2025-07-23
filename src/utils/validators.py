@@ -662,7 +662,7 @@ class ConfigValidator:
 # Custom Validation Decorators
 
 
-def validate_input(**validators) -> Callable[[F], F]:
+def validate_input(**validators: Callable[[Any], Any]) -> Callable[[F], F]:
     """
     Decorator for validating function inputs.
 
@@ -705,7 +705,7 @@ def validate_input(**validators) -> Callable[[F], F]:
     return decorator
 
 
-def validate_async_input(**validators) -> Callable[[AsyncF], AsyncF]:
+def validate_async_input(**validators: Callable[[Any], Any]) -> Callable[[AsyncF], AsyncF]:
     """
     Decorator for validating async function inputs.
 

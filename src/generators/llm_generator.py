@@ -408,7 +408,7 @@ Focus on:
 
     @with_retry(max_retries=3, backoff_factor=1.5)
     @with_rate_limiting(requests_per_window=30, window_seconds=60)
-    async def generate(
+    async def generate(  # type: ignore[override]
         self,
         prompt: str,
         generation_id: str | None = None,
@@ -690,10 +690,14 @@ Provide a detailed JSON response following the established schema with all requi
 
         if isinstance(enhanced_data, dict):
             if "materials" in enhanced_data:
-                category_info["tags"] = list(category_info["tags"]) + enhanced_data["materials"]
+                current_tags = category_info["tags"]
+                if isinstance(current_tags, list):
+                    category_info["tags"] = current_tags + enhanced_data["materials"]
 
             if "style_notes" in enhanced_data:
-                category_info["tags"] = list(category_info["tags"]) + enhanced_data["style_notes"]
+                current_tags = category_info["tags"]
+                if isinstance(current_tags, list):
+                    category_info["tags"] = current_tags + enhanced_data["style_notes"]
 
             poly_count = enhanced_data.get("estimated_polygon_count", 1000)
             if poly_count > 10000:

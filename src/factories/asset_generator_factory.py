@@ -2,7 +2,9 @@
 Factory for creating asset generator instances.
 """
 
-from src.generators.asset_generator import Asset3DGenerator, ServiceConfig, ServiceProvider
+from src.generators.asset_generator import Asset3DGenerator
+from src.generators.configs import ServiceConfig
+from src.generators.enums import ServiceProvider
 from src.models.asset_model import FileFormat, QualityLevel
 from src.utils.env_config import AppSettings
 

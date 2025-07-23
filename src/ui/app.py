@@ -29,7 +29,7 @@ class Asset3DGeneratorUI:
 
     def create_interface(self) -> gr.Blocks:
         """Create the main Gradio interface."""
-        with gr.Blocks(css=MODERN_CSS, title="AI 3D Asset Generator", theme=gr.themes.Default()) as interface:
+        with gr.Blocks(css=MODERN_CSS, title="AI 3D Asset Generator") as interface:
             self.components.create_header()
             with gr.Tabs():
                 with gr.Tab("🎨 Generate"):
@@ -38,7 +38,7 @@ class Asset3DGeneratorUI:
                     self._create_results_tab(interface)
         return interface
 
-    def _create_generation_tab(self, interface: gr.Blocks):
+    def _create_generation_tab(self, interface: gr.Blocks) -> None:
         """Create the generation tab with input form and progress monitoring."""
         with gr.Row():
             with gr.Column(scale=2):
@@ -57,7 +57,7 @@ class Asset3DGeneratorUI:
             inputs=[description, asset_type, style, quality, format_choice],
             outputs=[status_display, progress_display, error_display, cancel_btn],
             show_progress="full",
-            _js="() => { document.querySelector('.progress-container').style.opacity = '1'; }",
+            js="() => { document.querySelector('.progress-container').style.opacity = '1'; }",
         )
 
         # Bind cancel button
@@ -72,10 +72,10 @@ class Asset3DGeneratorUI:
             fn=self.handlers.check_progress_sync,
             outputs=[status_display, progress_display, cancel_btn, refresh_timer],
             show_progress="hidden",
-            _js="() => { return { active: document.querySelector('.progress-container')?.style.opacity === '1' }; }",
+            js="() => { return { active: document.querySelector('.progress-container')?.style.opacity === '1' }; }",
         )
 
-    def _create_results_tab(self, interface: gr.Blocks):
+    def _create_results_tab(self, interface: gr.Blocks) -> None:
         """Create the results tab for displaying generated assets."""
         (
             model_viewer,
@@ -92,14 +92,14 @@ class Asset3DGeneratorUI:
             fn=self.handlers.display_selected_asset,
             inputs=[asset_list],
             outputs=[model_viewer, metadata_display, download_btn, share_btn],
-            _js="() => { document.querySelector('.model-viewer').style.opacity = '0'; setTimeout(() => { document.querySelector('.model-viewer').style.opacity = '1'; }, 100); }",
+            js="() => { document.querySelector('.model-viewer').style.opacity = '0'; setTimeout(() => { document.querySelector('.model-viewer').style.opacity = '1'; }, 100); }",
         )
 
         # Bind refresh button
         refresh_assets_btn.click(
             fn=self.handlers.refresh_asset_list,
             outputs=[asset_list],
-            _js="() => { document.querySelector('.dropdown-assets').style.animation = 'pulse 0.3s'; }",
+            js="() => { document.querySelector('.dropdown-assets').style.animation = 'pulse 0.3s'; }",
         )
 
         # Bind download button

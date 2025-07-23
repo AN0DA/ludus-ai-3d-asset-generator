@@ -47,8 +47,9 @@ class UIComponents:
 
                 style = gr.Dropdown(
                     label="Art Style",
-                    choices=[("None", None)] + [(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
-                    value=None,
+                    choices=[("None", "none")]
+                    + [(s.value.replace("_", " ").title(), s.value) for s in StylePreference],
+                    value="none",
                     allow_custom_value=False,
                     elem_classes=["form-input"],
                     info="Choose the visual style (optional)",

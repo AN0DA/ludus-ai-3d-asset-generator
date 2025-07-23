@@ -5,8 +5,9 @@ from typing import Any
 import structlog
 
 from src.core.app import AssetGenerationApp
-from src.generators.asset_generator import GenerationRequest
-from src.models.asset_model import AssetMetadata, AssetType, FileFormat, GenerationStatus, QualityLevel, StylePreference
+from src.generators.base import GenerationStatus
+from src.generators.models import GenerationRequest, ProgressUpdate
+from src.models.asset_model import AssetMetadata, AssetType, FileFormat, QualityLevel, StylePreference
 from src.utils.validators import ValidationException
 
 logger = structlog.get_logger(__name__)
@@ -261,7 +262,7 @@ class GenerationPipeline:
                     request=generation_request, progress_callback=asset_progress_callback
                 )
 
-                if asset_result.status == GenerationStatus.COMPLETED:
+                if asset_result.status == GenerationStatus.COMPLETED:  # type: ignore[comparison-overlap]
                     return asset_result
                 else:
                     logger.warning("3D asset generation failed", error=asset_result.error_message)
